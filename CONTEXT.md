@@ -41,14 +41,22 @@ RecipeBank — full-stack recipe management app
 - [x] Settings page (`/settings`) — profile, password, danger zone
 - [x] Profile page (`/profile`) — read-only user info display
 
-### Recipes — Phase 1 API complete, UI pending (Phase 2)
+### Recipes — API complete, UI pending (Phase 2)
 
 - [x] User model + full Recipe model (Prisma schema complete)
 - [x] `GET /api/recipes` — paginated list with filters (q, favorites, cuisine, dishType, complexity)
 - [x] `POST /api/recipes` — create recipe with nested ingredient groups + steps
 - [x] `GET /api/recipes/[id]` — full recipe with all relations
-- [x] `PATCH /api/recipes/[id]` — partial update; ingredient groups and steps replaced wholesale when provided
+- [x] `PATCH /api/recipes/[id]` — partial update; ingredient groups and steps replaced wholesale when provided; writes `RecipeEdit` rows for every changed field
 - [x] `DELETE /api/recipes/[id]` — delete (cascades to all relations)
+- [x] `PATCH /api/recipes/[id]/favorite` — toggles `isFavorite`; returns `{ id, isFavorite }`
+- [x] `GET /api/recipes/[id]/notes` — list notes (newest first)
+- [x] `POST /api/recipes/[id]/notes` — create a note (max 10 000 chars)
+- [x] `DELETE /api/recipes/[id]/notes/[noteId]` — delete a note (ownership verified)
+- [x] `GET /api/recipes/[id]/cook-log` — list cook log entries (newest first)
+- [x] `POST /api/recipes/[id]/cook-log` — log a cook session; increments `cookCount`, updates `lastCookedAt`
+- [x] `DELETE /api/recipes/[id]/cook-log/[logId]` — remove a log entry; recomputes `cookCount` + `lastCookedAt`
+- [x] `GET /api/recipes/[id]/edits` — paginated edit history (cursor-based, newest first)
 - [ ] Recipe UI: Recipe Bank grid, Recipe detail page — Phase 2
 - [ ] Recipe import from URL — Phase 3
 - [ ] AI embedding generation on import / edit — Phase 3
