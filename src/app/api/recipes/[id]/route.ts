@@ -3,6 +3,7 @@ import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { ingredientGroupSchema, stepSchema } from "@/app/api/recipes/route";
+import type { Recipe } from "@prisma/client";
 
 const recipeUpdateSchema = z.object({
   title: z.string().min(1, "Title is required").max(500).optional(),
@@ -29,11 +30,59 @@ const recipeInclude = {
   steps: { orderBy: { sortOrder: "asc" as const } },
 } as const;
 
-async function getOwnedRecipe(id: string, userId: string) {
+/**
+ * Fetches a recipe and verifies ownership.
+ * Returns { recipe, error: null } on success or { recipe: null, error: Response } on failure.
+ * Exported so sub-routes (favorite, notes, cook-log, edits) can reuse it.
+ */
+export async function getOwnedRecipe(id: string, userId: string) {
   const recipe = await prisma.recipe.findUnique({ where: { id } });
   if (!recipe) return { recipe: null, error: apiError("Recipe not found", 404) };
   if (recipe.userId !== userId) return { recipe: null, error: apiError("Forbidden", 403) };
   return { recipe, error: null };
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for edit tracking
+// ---------------------------------------------------------------------------
+
+/** Fields whose values we record in RecipeEdit when they change. */
+const TRACKED_CORE_FIELDS = [
+  "title", "description", "servings", "prepTimeMinutes", "cookTimeMinutes",
+  "complexity", "dishType", "cuisine", "flavorProfile", "isFavorite",
+] as const;
+
+type TrackedField = typeof TRACKED_CORE_FIELDS[number];
+
+function serialize(val: unknown): string | null {
+  if (val === null || val === undefined) return null;
+  return String(val);
+}
+
+function buildEditEntries(
+  recipeId: string,
+  userId: string,
+  before: Recipe,
+  patch: Partial<Record<TrackedField, unknown>>,
+) {
+  const entries: {
+    recipeId: string;
+    userId: string;
+    fieldName: string;
+    oldValue: string | null;
+    newValue: string | null;
+  }[] = [];
+
+  for (const field of TRACKED_CORE_FIELDS) {
+    if (!(field in patch)) continue;
+    const oldStr = serialize(before[field]);
+    const newStr = serialize(patch[field]);
+    if (oldStr !== newStr) {
+      entries.push({ recipeId, userId, fieldName: field, oldValue: oldStr, newValue: newStr });
+    }
+  }
+
+  return entries;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,7 +120,7 @@ export async function PATCH(
   if (!auth) return apiError("Unauthorized", 401);
 
   const { id } = await params;
-  const { error } = await getOwnedRecipe(id, auth.user.id);
+  const { recipe: currentRecipe, error } = await getOwnedRecipe(id, auth.user.id);
   if (error) return error;
 
   let body: unknown;
@@ -86,11 +135,7 @@ export async function PATCH(
     return apiError(parsed.error.issues[0]?.message ?? "Invalid input", 400);
   }
 
-  const {
-    ingredientGroups: newGroups,
-    steps: newSteps,
-    ...coreFields
-  } = parsed.data;
+  const { ingredientGroups: newGroups, steps: newSteps, ...coreFields } = parsed.data;
 
   const updated = await prisma.$transaction(async (tx) => {
     // Update core recipe fields
@@ -135,6 +180,38 @@ export async function PATCH(
           })),
         });
       }
+    }
+
+    // Record edit history
+    const editEntries = buildEditEntries(
+      id,
+      auth.user.id,
+      currentRecipe!,
+      coreFields as Partial<Record<TrackedField, unknown>>,
+    );
+
+    if (newGroups !== undefined) {
+      editEntries.push({
+        recipeId: id,
+        userId: auth.user.id,
+        fieldName: "ingredientGroups",
+        oldValue: null,
+        newValue: null,
+      });
+    }
+
+    if (newSteps !== undefined) {
+      editEntries.push({
+        recipeId: id,
+        userId: auth.user.id,
+        fieldName: "steps",
+        oldValue: null,
+        newValue: null,
+      });
+    }
+
+    if (editEntries.length > 0) {
+      await tx.recipeEdit.createMany({ data: editEntries });
     }
 
     return tx.recipe.findUnique({ where: { id }, include: recipeInclude });
