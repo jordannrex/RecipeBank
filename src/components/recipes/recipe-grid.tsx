@@ -25,6 +25,7 @@ export function RecipeGrid() {
 
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebounce(query, 350);
+  const [aiSearch, setAiSearch] = useState(false);
   const [showFavorites, setShowFavorites] = useState(
     () => searchParams.get("favorites") === "true"
   );
@@ -42,6 +43,7 @@ export function RecipeGrid() {
       try {
         const params = new URLSearchParams({ page: String(pageNum), limit: String(LIMIT) });
         if (debouncedQuery) params.set("q", debouncedQuery);
+        if (aiSearch && debouncedQuery) params.set("ai", "true");
         if (showFavorites) params.set("favorites", "true");
         if (complexity) params.set("complexity", complexity);
 
@@ -59,7 +61,7 @@ export function RecipeGrid() {
         setLoadingMore(false);
       }
     },
-    [debouncedQuery, showFavorites, complexity],
+    [debouncedQuery, aiSearch, showFavorites, complexity],
   );
 
   // Reset and fetch fresh when filters change
@@ -112,26 +114,52 @@ export function RecipeGrid() {
       </div>
 
       {/* Search */}
-      <div className="relative">
-        <svg
-          className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-          aria-hidden="true"
+      <div className="relative flex items-center gap-2">
+        <div className="relative flex-1">
+          <svg
+            className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden="true"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
+          </svg>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={aiSearch ? "Describe what you're looking for…" : "Search recipes…"}
+            className={cn(
+              "w-full rounded-xl border bg-card py-2.5 pl-9 pr-4 text-sm text-text outline-none placeholder:text-muted transition-colors",
+              aiSearch
+                ? "border-highlight ring-2 ring-highlight/20"
+                : "border-border focus:border-highlight focus:ring-2 focus:ring-highlight/20",
+            )}
+            aria-label="Search recipes"
+          />
+        </div>
+        {/* AI toggle */}
+        <button
+          type="button"
+          onClick={() => setAiSearch((v) => !v)}
+          title={aiSearch ? "AI search on — click to use standard search" : "Enable AI semantic search"}
+          className={cn(
+            "flex items-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold transition-colors",
+            aiSearch
+              ? "border-highlight bg-highlight text-white"
+              : "border-border bg-card text-muted hover:border-highlight/50 hover:text-text",
+          )}
+          aria-pressed={aiSearch}
         >
-          <circle cx="11" cy="11" r="8" />
-          <path d="m21 21-4.35-4.35" />
-        </svg>
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search recipes…"
-          className="w-full rounded-xl border border-border bg-card py-2.5 pl-9 pr-4 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20"
-          aria-label="Search recipes"
-        />
+          {/* Sparkle icon */}
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" />
+          </svg>
+          AI
+        </button>
       </div>
 
       {/* Filter chips */}

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
+import type { ImportedRecipe } from "@/lib/recipe-import";
 
 type IngredientRow = {
   name: string;
@@ -81,12 +83,80 @@ export function AddRecipeModal({ open, onClose }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ── URL import state ────────────────────────────────────────────
+  const [mode, setMode] = useState<"import" | "manual">("manual");
+  const [importUrl, setImportUrl] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importedFrom, setImportedFrom] = useState<string | null>(null);
+  const [sourceUrl, setSourceUrl] = useState<string | null>(null);
+
   function reset() {
     setTitle(""); setDescription(""); setCuisine(""); setDishType("");
     setComplexity("MEDIUM"); setPrepTime(""); setCookTime(""); setServings("4");
     setGroups([emptyGroup()]); setSteps([emptyStep()]);
     setPhotoUrl(null); setPhotoLoading(false);
     setError(null);
+    setMode("manual"); setImportUrl(""); setImporting(false);
+    setImportError(null); setImportedFrom(null); setSourceUrl(null);
+  }
+
+  function populateFromImport(imported: ImportedRecipe) {
+    setTitle(imported.title);
+    setDescription(imported.description ?? "");
+    setPhotoUrl(imported.photoUrl ?? null);
+    setPhotoLoading(false);
+    setCuisine(imported.cuisine ?? "");
+    setDishType(imported.dishType ?? "");
+    setComplexity(imported.complexity ?? "MEDIUM");
+    setPrepTime(imported.prepTimeMinutes?.toString() ?? "");
+    setCookTime(imported.cookTimeMinutes?.toString() ?? "");
+    setServings(imported.servings?.toString() ?? "4");
+    setSourceUrl(imported.sourceUrl);
+    try { setImportedFrom(new URL(imported.sourceUrl).hostname.replace(/^www\./, "")); } catch { /* ignore */ }
+    setGroups(
+      imported.ingredientGroups.length > 0
+        ? imported.ingredientGroups.map((g) => ({
+            name: g.name,
+            ingredients:
+              g.ingredients.length > 0
+                ? g.ingredients.map((i) => ({
+                    name: i.name,
+                    quantity: i.quantity?.toString() ?? "",
+                    unit: i.unit ?? "",
+                    preparation: i.preparation ?? "",
+                  }))
+                : [emptyIngredient()],
+          }))
+        : [emptyGroup()],
+    );
+    setSteps(
+      imported.steps.length > 0
+        ? imported.steps.map((s) => ({ body: s.body, sectionHeader: s.sectionHeader ?? "" }))
+        : [emptyStep()],
+    );
+    setMode("manual");
+  }
+
+  async function handleImport(e: React.FormEvent) {
+    e.preventDefault();
+    if (!importUrl.trim()) return;
+    setImporting(true);
+    setImportError(null);
+    try {
+      const res = await fetch("/api/recipes/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: importUrl.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setImportError(json.error ?? "Import failed"); return; }
+      populateFromImport(json.data as ImportedRecipe);
+    } catch {
+      setImportError("Something went wrong. Check the URL and try again.");
+    } finally {
+      setImporting(false);
+    }
   }
 
   async function handlePhotoFile(file: File) {
@@ -158,6 +228,7 @@ export function AddRecipeModal({ open, onClose }: Props) {
         title: title.trim(),
         description: description.trim() || null,
         photoUrl: photoUrl ?? null,
+        sourceUrl: sourceUrl ?? null,
         cuisine: cuisine.trim() || null,
         dishType: dishType.trim() || null,
         complexity,
@@ -208,6 +279,65 @@ export function AddRecipeModal({ open, onClose }: Props) {
 
   return (
     <Dialog open={open} onClose={handleClose} title="Add Recipe" className="max-w-2xl">
+      {/* ── Mode switcher ─────────────────────────────────────────── */}
+      <div className="mb-6 flex items-center justify-center">
+        <div className="flex items-center gap-1 rounded-full border border-border bg-card p-1">
+          {(["import", "manual"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setMode(m)}
+              className={cn(
+                "rounded-full px-5 py-1.5 text-sm font-medium transition-colors",
+                mode === m ? "bg-text text-background shadow-sm" : "text-text/60 hover:text-text",
+              )}
+            >
+              {m === "import" ? "Import URL" : "Manual Entry"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Import URL panel ──────────────────────────────────────── */}
+      {mode === "import" && (
+        <form onSubmit={handleImport} className="space-y-4 pb-2">
+          <p className="text-sm text-muted">
+            Paste a recipe URL and we&apos;ll extract the ingredients, steps, and metadata automatically.
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="url"
+              value={importUrl}
+              onChange={(e) => setImportUrl(e.target.value)}
+              placeholder="https://www.example.com/recipe/..."
+              className="flex-1 rounded-xl border border-border bg-card px-4 py-2.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20"
+              autoFocus
+            />
+            <Button type="submit" disabled={importing || !importUrl.trim()}>
+              {importing ? (
+                <span className="flex items-center gap-1.5">
+                  <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Importing…
+                </span>
+              ) : "Import"}
+            </Button>
+          </div>
+          {importError && (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              {importError}
+            </div>
+          )}
+          <p className="text-xs text-muted">
+            Works with most recipe sites. TikTok, Instagram, and YouTube recipes are extracted from the caption only.
+          </p>
+        </form>
+      )}
+
+      {/* ── Manual entry form ─────────────────────────────────────── */}
+      {mode === "manual" && (
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Core fields */}
         <div className="space-y-4">
@@ -406,6 +536,16 @@ export function AddRecipeModal({ open, onClose }: Props) {
           </button>
         </div>
 
+        {/* Imported-from banner */}
+        {importedFrom && (
+          <div className="rounded-xl border border-highlight/30 bg-highlight/5 px-4 py-2.5 text-sm text-text flex items-center gap-2">
+            <svg className="h-4 w-4 flex-shrink-0 text-highlight" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+            </svg>
+            <span>Imported from <strong>{importedFrom}</strong> — review and save below.</span>
+          </div>
+        )}
+
         {error && <p className="text-sm text-destructive">{error}</p>}
 
         <div className="flex gap-3 pt-2">
@@ -417,6 +557,7 @@ export function AddRecipeModal({ open, onClose }: Props) {
           </Button>
         </div>
       </form>
+      )}
     </Dialog>
   );
 }

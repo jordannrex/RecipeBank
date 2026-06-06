@@ -4,6 +4,7 @@ import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { ingredientGroupSchema, stepSchema } from "@/lib/recipe-schemas";
 import { getOwnedRecipe } from "@/lib/recipe-helpers";
+import { buildEmbeddingText, generateEmbedding } from "@/lib/embeddings";
 import type { Recipe } from "@prisma/client";
 
 const recipeUpdateSchema = z.object({
@@ -18,6 +19,7 @@ const recipeUpdateSchema = z.object({
   flavorProfile: z.string().max(500).nullable().optional(),
   isFavorite: z.boolean().optional(),
   photoUrl: z.string().nullable().optional(),
+  sourceUrl: z.string().url().nullable().optional(),
   // When provided, replaces all existing groups + their ingredients.
   ingredientGroups: z.array(ingredientGroupSchema).optional(),
   // When provided, replaces all existing steps.
@@ -206,6 +208,26 @@ export async function PATCH(
 
     return tx.recipe.findUnique({ where: { id }, include: recipeInclude });
   });
+
+  // Regenerate embedding in the background
+  if (updated) {
+    const fullRecipe = await prisma.recipe.findUnique({
+      where: { id },
+      include: { ingredientGroups: { include: { ingredients: true } } },
+    });
+    if (fullRecipe) {
+      const embeddingText = buildEmbeddingText(fullRecipe);
+      generateEmbedding(embeddingText).then((embedding) => {
+        if (!embedding) return;
+        const vectorString = `[${embedding.join(",")}]`;
+        return prisma.$executeRawUnsafe(
+          `UPDATE recipes SET embedding = $1::vector WHERE id = $2`,
+          vectorString,
+          id,
+        );
+      }).catch((err) => console.error("[recipes/[id]] embedding update failed:", err));
+    }
+  }
 
   return apiSuccess(updated);
 }

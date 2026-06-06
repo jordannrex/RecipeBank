@@ -3,6 +3,7 @@ import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { recipeCreateSchema } from "@/lib/recipe-schemas";
+import { buildEmbeddingText, generateEmbedding, searchRecipesByEmbedding } from "@/lib/embeddings";
 import type { RecipeListItem, RecipeListResponse } from "@/types/recipe";
 
 // ---------------------------------------------------------------------------
@@ -58,6 +59,7 @@ const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   q: z.string().optional(),
+  ai: z.coerce.boolean().optional(), // semantic search toggle
   favorites: z.coerce.boolean().optional(),
   cuisine: z.string().optional(),
   dishType: z.string().optional(),
@@ -74,9 +76,39 @@ export async function GET(request: Request) {
     return apiError(parsed.error.issues[0]?.message ?? "Invalid query", 400);
   }
 
-  const { page, limit, q, favorites, cuisine, dishType, complexity } = parsed.data;
+  const { page, limit, q, ai, favorites, cuisine, dishType, complexity } = parsed.data;
   const skip = (page - 1) * limit;
 
+  // ── AI semantic search ────────────────────────────────────────────────────
+  if (ai && q) {
+    try {
+      const queryEmbedding = await generateEmbedding(q);
+      if (queryEmbedding) {
+        const matches = await searchRecipesByEmbedding(auth.user.id, queryEmbedding, limit);
+        if (matches.length > 0) {
+          const ids = matches.map((m) => m.id);
+          const rows = await prisma.recipe.findMany({
+            where: { id: { in: ids }, userId: auth.user.id },
+            select: recipeListSelect,
+          });
+          // Re-sort to match similarity order
+          const rowMap = new Map(rows.map((r) => [r.id, r]));
+          const ordered = ids.map((id) => rowMap.get(id)).filter(Boolean) as typeof rows;
+          const data: RecipeListResponse = {
+            recipes: ordered.map(toListItem),
+            total: ordered.length,
+            page: 1,
+            limit,
+          };
+          return apiSuccess(data);
+        }
+      }
+    } catch (err) {
+      console.error("[recipes] AI search failed, falling back to text search:", err);
+    }
+  }
+
+  // ── Standard text search ──────────────────────────────────────────────────
   const where = {
     userId: auth.user.id,
     ...(q ? { title: { contains: q, mode: "insensitive" as const } } : {}),
@@ -128,7 +160,7 @@ export async function POST(request: Request) {
   }
 
   const {
-    title, description, photoUrl, servings, prepTimeMinutes, cookTimeMinutes,
+    title, description, photoUrl, sourceUrl, servings, prepTimeMinutes, cookTimeMinutes,
     complexity, dishType, cuisine, flavorProfile, ingredientGroups, steps,
   } = parsed.data;
 
@@ -138,6 +170,7 @@ export async function POST(request: Request) {
       title,
       description: description ?? null,
       photoUrl: photoUrl ?? null,
+      sourceUrl: sourceUrl ?? null,
       servings,
       currentServings: servings,
       prepTimeMinutes: prepTimeMinutes ?? null,
@@ -178,6 +211,25 @@ export async function POST(request: Request) {
       steps: { orderBy: { sortOrder: "asc" } },
     },
   });
+
+  // Generate and store embedding in the background (non-blocking)
+  const embeddingText = buildEmbeddingText({
+    title: recipe.title,
+    description: recipe.description,
+    dishType: recipe.dishType,
+    cuisine: recipe.cuisine,
+    flavorProfile: recipe.flavorProfile,
+    ingredientGroups: recipe.ingredientGroups,
+  });
+  generateEmbedding(embeddingText).then((embedding) => {
+    if (!embedding) return;
+    const vectorString = `[${embedding.join(",")}]`;
+    return prisma.$executeRawUnsafe(
+      `UPDATE recipes SET embedding = $1::vector WHERE id = $2`,
+      vectorString,
+      recipe.id,
+    );
+  }).catch((err) => console.error("[recipes] embedding store failed:", err));
 
   return apiSuccess(recipe, 201);
 }

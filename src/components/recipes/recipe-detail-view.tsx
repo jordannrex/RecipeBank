@@ -1,6 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { calcIngredientCost } from "@/lib/units";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -717,6 +733,182 @@ function PriceCalculatorMode({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Drag-and-drop sub-components for EditMode
+// ---------------------------------------------------------------------------
+
+/** Grip icon shown on drag handles */
+function GripIcon() {
+  return (
+    <svg className="h-4 w-4" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <circle cx="5" cy="4" r="1.2" />
+      <circle cx="11" cy="4" r="1.2" />
+      <circle cx="5" cy="8" r="1.2" />
+      <circle cx="11" cy="8" r="1.2" />
+      <circle cx="5" cy="12" r="1.2" />
+      <circle cx="11" cy="12" r="1.2" />
+    </svg>
+  );
+}
+
+function SortableIngredientRow({
+  id,
+  ing,
+  canRemove,
+  onSet,
+  onRemove,
+}: {
+  id: string;
+  ing: EditIngredient;
+  canRemove: boolean;
+  onSet: (field: keyof EditIngredient, val: string | boolean) => void;
+  onRemove: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className="flex gap-2 items-start">
+      {/* Drag handle */}
+      <button
+        type="button"
+        className="mt-2 flex-shrink-0 cursor-grab touch-none text-muted hover:text-text active:cursor-grabbing"
+        aria-label="Drag to reorder"
+        {...attributes}
+        {...listeners}
+      >
+        <GripIcon />
+      </button>
+      <input
+        type="number"
+        value={ing.quantity}
+        onChange={(e) => onSet("quantity", e.target.value)}
+        placeholder="Qty"
+        min="0"
+        step="any"
+        className="w-16 flex-shrink-0 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight"
+      />
+      <input
+        type="text"
+        value={ing.unit}
+        onChange={(e) => onSet("unit", e.target.value)}
+        placeholder="Unit"
+        className="w-20 flex-shrink-0 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight"
+      />
+      <input
+        type="text"
+        value={ing.name}
+        onChange={(e) => onSet("name", e.target.value)}
+        placeholder="Name *"
+        className="flex-1 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight"
+      />
+      <input
+        type="text"
+        value={ing.preparation}
+        onChange={(e) => onSet("preparation", e.target.value)}
+        placeholder="Prep"
+        className="w-24 flex-shrink-0 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight"
+      />
+      {canRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="mt-1.5 flex-shrink-0 text-muted hover:text-destructive"
+          aria-label="Remove ingredient"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SortableGroup({
+  gi,
+  group,
+  showHeader,
+  onNameChange,
+  onRemoveGroup,
+  onAddIngredient,
+  onSetIngredient,
+  onRemoveIngredient,
+}: {
+  gi: number;
+  group: EditGroup;
+  showHeader: boolean;
+  onNameChange: (v: string) => void;
+  onRemoveGroup: () => void;
+  onAddIngredient: () => void;
+  onSetIngredient: (ii: number, field: keyof EditIngredient, val: string | boolean) => void;
+  onRemoveIngredient: (ii: number) => void;
+}) {
+  const groupId = `group-${gi}`;
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: groupId });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+
+  const ingredientIds = group.ingredients.map((_, ii) => `group-${gi}-ing-${ii}`);
+
+  return (
+    <div ref={setNodeRef} style={style} className="rounded-xl border border-border bg-card/50 p-3 space-y-2">
+      {showHeader && (
+        <div className="flex items-center gap-2">
+          {/* Group drag handle */}
+          <button
+            type="button"
+            className="flex-shrink-0 cursor-grab touch-none text-muted hover:text-text active:cursor-grabbing"
+            aria-label="Drag to reorder group"
+            {...attributes}
+            {...listeners}
+          >
+            <GripIcon />
+          </button>
+          <input
+            type="text"
+            value={group.name}
+            onChange={(e) => onNameChange(e.target.value)}
+            placeholder="Group name"
+            className="flex-1 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight"
+          />
+          <button type="button" onClick={onRemoveGroup} className="text-xs text-muted hover:text-destructive">
+            Remove group
+          </button>
+        </div>
+      )}
+
+      <SortableContext items={ingredientIds} strategy={verticalListSortingStrategy}>
+        {group.ingredients.map((ing, ii) => (
+          <SortableIngredientRow
+            key={`group-${gi}-ing-${ii}`}
+            id={`group-${gi}-ing-${ii}`}
+            ing={ing}
+            canRemove={group.ingredients.length > 1}
+            onSet={(field, val) => onSetIngredient(ii, field, val)}
+            onRemove={() => onRemoveIngredient(ii)}
+          />
+        ))}
+      </SortableContext>
+
+      <button type="button" onClick={onAddIngredient} className="text-xs text-highlight hover:opacity-80">
+        + Add ingredient
+      </button>
+    </div>
+  );
+}
+
 function EditMode({
   recipe,
   onSaved,
@@ -728,6 +920,74 @@ function EditMode({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [photoLoading, setPhotoLoading] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(event.active.id as string);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveId(null);
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const activeId = active.id as string;
+    const overId = over.id as string;
+
+    const isGroup = (id: string) => id.startsWith("group-") && !id.includes("-ing-");
+    const isIng = (id: string) => id.includes("-ing-");
+
+    if (isGroup(activeId) && isGroup(overId)) {
+      // Reorder groups
+      const fromGi = parseInt(activeId.replace("group-", ""));
+      const toGi = parseInt(overId.replace("group-", ""));
+      setForm((prev) => {
+        const groups = [...prev.groups];
+        const [moved] = groups.splice(fromGi, 1);
+        groups.splice(toGi, 0, moved);
+        return { ...prev, groups };
+      });
+      return;
+    }
+
+    if (isIng(activeId)) {
+      // Parse ids: "group-{gi}-ing-{ii}"
+      const parseIng = (id: string) => {
+        const m = id.match(/^group-(\d+)-ing-(\d+)$/);
+        return m ? { gi: parseInt(m[1]), ii: parseInt(m[2]) } : null;
+      };
+      const src = parseIng(activeId);
+      if (!src) return;
+
+      let dstGi: number;
+      let dstIi: number;
+
+      if (isGroup(overId)) {
+        // Dropped on a group header → move to first position in that group
+        dstGi = parseInt(overId.replace("group-", ""));
+        dstIi = 0;
+      } else {
+        const dst = parseIng(overId);
+        if (!dst) return;
+        dstGi = dst.gi;
+        dstIi = dst.ii;
+      }
+
+      if (src.gi === dstGi && src.ii === dstIi) return;
+
+      setForm((prev) => {
+        const groups = prev.groups.map((g) => ({ ...g, ingredients: [...g.ingredients] }));
+        const ingredient = groups[src.gi].ingredients[src.ii];
+        groups[src.gi].ingredients.splice(src.ii, 1);
+        // Adjust index if same group and source was before destination
+        const adjustedDstIi = src.gi === dstGi && src.ii < dstIi ? dstIi - 1 : dstIi;
+        groups[dstGi].ingredients.splice(adjustedDstIi, 0, ingredient);
+        return { ...prev, groups };
+      });
+    }
+  }
 
   async function handlePhotoFile(file: File) {
     if (!file.type.startsWith("image/")) return;
@@ -920,67 +1180,44 @@ function EditMode({
         </div>
       </div>
 
-      {/* Ingredients */}
+      {/* Ingredients — DnD enabled */}
       <div>
         <p className="mb-2 text-sm font-semibold text-text">Ingredients</p>
-        <div className="space-y-4">
-          {form.groups.map((group, gi) => (
-            <div key={gi} className="rounded-xl border border-border bg-card/50 p-3 space-y-2">
-              {form.groups.length > 1 && (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={group.name}
-                    onChange={(e) => setGroupName(gi, e.target.value)}
-                    placeholder="Group name"
-                    className="flex-1 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight"
-                  />
-                  <button type="button" onClick={() => removeGroup(gi)} className="text-xs text-muted hover:text-destructive">Remove group</button>
-                </div>
-              )}
-              {group.ingredients.map((ing, ii) => (
-                <div key={ii} className="flex gap-2 items-start">
-                  <input
-                    type="number"
-                    value={ing.quantity}
-                    onChange={(e) => setIngredient(gi, ii, "quantity", e.target.value)}
-                    placeholder="Qty"
-                    min="0"
-                    step="any"
-                    className="w-16 flex-shrink-0 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight"
-                  />
-                  <input
-                    type="text"
-                    value={ing.unit}
-                    onChange={(e) => setIngredient(gi, ii, "unit", e.target.value)}
-                    placeholder="Unit"
-                    className="w-20 flex-shrink-0 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight"
-                  />
-                  <input
-                    type="text"
-                    value={ing.name}
-                    onChange={(e) => setIngredient(gi, ii, "name", e.target.value)}
-                    placeholder="Name *"
-                    className="flex-1 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight"
-                  />
-                  <input
-                    type="text"
-                    value={ing.preparation}
-                    onChange={(e) => setIngredient(gi, ii, "preparation", e.target.value)}
-                    placeholder="Prep"
-                    className="w-24 flex-shrink-0 rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight"
-                  />
-                  {group.ingredients.length > 1 && (
-                    <button type="button" onClick={() => removeIngredient(gi, ii)} className="mt-1.5 flex-shrink-0 text-muted hover:text-destructive" aria-label="Remove">
-                      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                    </button>
-                  )}
-                </div>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          <SortableContext
+            items={form.groups.map((_, gi) => `group-${gi}`)}
+            strategy={verticalListSortingStrategy}
+          >
+            <div className="space-y-4">
+              {form.groups.map((group, gi) => (
+                <SortableGroup
+                  key={`group-${gi}`}
+                  gi={gi}
+                  group={group}
+                  showHeader={form.groups.length > 1}
+                  onNameChange={(v) => setGroupName(gi, v)}
+                  onRemoveGroup={() => removeGroup(gi)}
+                  onAddIngredient={() => addIngredient(gi)}
+                  onSetIngredient={(ii, field, val) => setIngredient(gi, ii, field, val)}
+                  onRemoveIngredient={(ii) => removeIngredient(gi, ii)}
+                />
               ))}
-              <button type="button" onClick={() => addIngredient(gi)} className="text-xs text-highlight hover:opacity-80">+ Add ingredient</button>
             </div>
-          ))}
-        </div>
+          </SortableContext>
+
+          <DragOverlay>
+            {activeId && (
+              <div className="rounded-lg border border-highlight/40 bg-card px-3 py-2 text-sm text-text opacity-80 shadow-lg">
+                Dragging…
+              </div>
+            )}
+          </DragOverlay>
+        </DndContext>
         <button type="button" onClick={addGroup} className="mt-2 text-xs text-muted hover:text-text">+ Add ingredient group</button>
       </div>
 

@@ -1,4 +1,26 @@
 import { prisma } from "@/lib/db";
+import { getOpenAI } from "@/lib/openai";
+
+// Model: cheapest OpenAI embedding, 1 536 dims — matches schema `vector(1536)`
+const EMBEDDING_MODEL = "text-embedding-3-small";
+
+/**
+ * Generate a 1 536-dimensional embedding for the given text string.
+ * Returns null (and logs) rather than throwing so callers can treat it as
+ * a non-fatal background operation.
+ */
+export async function generateEmbedding(text: string): Promise<number[] | null> {
+  try {
+    const response = await getOpenAI().embeddings.create({
+      model: EMBEDDING_MODEL,
+      input: text.slice(0, 8000), // stay well inside token limits
+    });
+    return response.data[0].embedding;
+  } catch (err) {
+    console.error("[embeddings] generateEmbedding failed:", err);
+    return null;
+  }
+}
 
 /**
  * Build the text blob used for recipe embedding generation.
