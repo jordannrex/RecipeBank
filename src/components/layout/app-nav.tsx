@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { LogoutButton } from "@/components/auth/logout-button";
+import { AvatarDisplay } from "@/components/ui/avatar-display";
 import { Logo } from "@/components/ui/logo";
 import { NavLink } from "@/components/ui/nav-link";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -33,15 +34,29 @@ function getInitials(displayName: string) {
 export function AppNav({ user }: AppNavProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const initials = getInitials(user.displayName);
 
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handleOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [menuOpen]);
+
   return (
-    <header className="sticky top-0 z-50 border-b border-border bg-card/95 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
+    <header className="sticky top-0 z-50 border-b border-border bg-banner backdrop-blur">
+      <div className="mx-auto flex h-20 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
 
         {/* Wordmark */}
         <Link href="/home" aria-label="RecipeBank home">
-          <Logo className="text-xl" />
+          <Logo className="text-2xl" />
         </Link>
 
         {/* Desktop nav links */}
@@ -64,39 +79,42 @@ export function AppNav({ user }: AppNavProps) {
         <div className="hidden items-center gap-2 md:flex">
           <ThemeToggle />
 
-          <details className="relative">
-            <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-text">
-              {user.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={user.avatarUrl}
-                  alt={`${user.displayName}'s avatar`}
-                  className="h-8 w-8 rounded-full object-cover"
-                />
-              ) : (
-                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-banner text-xs font-bold text-text">
-                  {initials}
-                </span>
-              )}
+          <div ref={menuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              className="flex items-center gap-2 text-base font-medium text-brand-white dark:text-brand-black"
+              aria-haspopup="true"
+              aria-expanded={menuOpen}
+            >
+              <AvatarDisplay
+                config={user.avatarConfig}
+                fallback={initials}
+                size={32}
+              />
               <span>{user.displayName}</span>
-            </summary>
+            </button>
 
-            <div className="absolute right-0 mt-2 w-44 rounded-xl border border-border bg-card py-1 shadow-lg">
-              <Link
-                href="/profile"
-                className="block px-4 py-2 text-sm text-text transition-colors hover:bg-card-hover"
-              >
-                Profile
-              </Link>
-              <Link
-                href="/settings"
-                className="block px-4 py-2 text-sm text-text transition-colors hover:bg-card-hover"
-              >
-                Settings
-              </Link>
-              <LogoutButton />
-            </div>
-          </details>
+            {menuOpen && (
+              <div className="absolute right-0 mt-2 w-44 rounded-xl border border-border bg-card py-1 shadow-lg">
+                <Link
+                  href="/profile"
+                  className="block px-4 py-2 text-sm text-text transition-colors hover:bg-card-hover"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Profile
+                </Link>
+                <Link
+                  href="/settings"
+                  className="block px-4 py-2 text-sm text-text transition-colors hover:bg-card-hover"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Settings
+                </Link>
+                <LogoutButton />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Mobile: theme toggle + hamburger */}
@@ -130,7 +148,7 @@ export function AppNav({ user }: AppNavProps) {
       {/* Mobile drawer */}
       {mobileOpen && (
         <nav
-          className="border-t border-border bg-card px-4 py-4 md:hidden"
+          className="border-t border-border bg-banner px-4 py-4 md:hidden"
           aria-label="Mobile"
         >
           <div className="flex flex-col gap-1">

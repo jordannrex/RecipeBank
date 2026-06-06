@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Enable class-based dark mode so dark: variants respond to .dark on <html> */
+@variant dark (&:is(.dark *));
+
 /* ============================================================
    Light mode — default
    ============================================================ */
@@ -10,7 +13,7 @@
   --banner:        #e8b8b8;
   --highlight:     #ff3131;
   --logo-accent:   #ff3131;
-  --logo-primary:  #000000;
+  --logo-primary:  #ffffff;
 
   /* Brand constants: never change */
   --brand-red:     #ff3131;
@@ -37,7 +40,7 @@
 .dark {
   --background:   #000000;
   --text:         #ffffff;
-  --logo-primary: #ffffff;
+  --logo-primary: #000000;
 
   /* UI chrome dark overrides */
   --border:       #27272a;

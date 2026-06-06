@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { ChangePasswordForm } from "@/components/settings/change-password-form";
 import { DeleteAccountSection } from "@/components/settings/delete-account-section";
 import { ProfileForm } from "@/components/settings/profile-form";
+import { AvatarPicker } from "@/components/settings/avatar-picker";
 import { getCurrentUser } from "@/lib/auth";
 
 function SettingsSection({
@@ -37,9 +38,16 @@ export default async function SettingsPage() {
 
       <SettingsSection
         title="Profile"
-        description="Update your display name and avatar."
+        description="Update your display name."
       >
         <ProfileForm user={user} />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Avatar"
+        description="Choose a letter + color, or paste a photo URL. Your last 5 avatars are saved for quick switching."
+      >
+        <AvatarPicker user={user} />
       </SettingsSection>
 
       <SettingsSection

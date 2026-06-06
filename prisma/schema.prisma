@@ -23,6 +23,8 @@ model User {
   displayName     String    @map("display_name")
   passwordHash    String    @map("password_hash")
   avatarUrl       String?   @map("avatar_url")
+  avatarConfig    Json?     @map("avatar_config")
+  avatarHistory   Json?     @map("avatar_history")
   emailVerified   Boolean   @default(false) @map("email_verified")
   emailVerifiedAt DateTime? @map("email_verified_at")
   deletionScheduledAt DateTime? @map("deletion_scheduled_at")

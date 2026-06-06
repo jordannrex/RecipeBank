@@ -23,8 +23,8 @@ export function NavLink({ href, active, children, className, onClick }: NavLinkP
       href={href}
       onClick={onClick}
       className={cn(
-        "text-sm font-medium transition-colors",
-        active ? "text-highlight" : "text-text hover:text-highlight/80",
+        "font-brand text-base font-medium transition-colors",
+        active ? "text-highlight" : "text-brand-white dark:text-brand-black hover:text-highlight/80",
         className,
       )}
     >

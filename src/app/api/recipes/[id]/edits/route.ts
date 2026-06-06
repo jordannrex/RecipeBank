@@ -2,7 +2,7 @@ import { z } from "zod";
 import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getOwnedRecipe } from "@/app/api/recipes/[id]/route";
+import { getOwnedRecipe } from "@/lib/recipe-helpers";
 
 const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
