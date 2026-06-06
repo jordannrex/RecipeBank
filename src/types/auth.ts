@@ -18,4 +18,6 @@ export type AuthUser = {
   username: string;
   displayName: string;
   avatarUrl: string | null;
+  deletionScheduledAt: Date | null;
+  createdAt: Date;
 };

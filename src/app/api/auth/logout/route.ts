@@ -3,7 +3,7 @@ import { apiSuccess } from "@/lib/api";
 import { AUTH_COOKIE_NAME } from "@/lib/auth/constants";
 import { clearSessionCookie } from "@/lib/auth/cookies";
 import { revokeSession } from "@/lib/auth/sessions";
-import { verifySessionToken } from "@/lib/auth/session";
+import { verifySessionToken } from "@/lib/auth/jwt";
 
 export async function POST() {
   const cookieStore = await cookies();
@@ -11,7 +11,7 @@ export async function POST() {
   const payload = token ? await verifySessionToken(token) : null;
 
   if (payload) {
-    await revokeSession(payload.sessionId);
+    await revokeSession(payload.sessionToken);
   }
 
   const response = apiSuccess({ ok: true });

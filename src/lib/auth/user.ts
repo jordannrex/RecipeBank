@@ -8,5 +8,7 @@ export function toAuthUser(user: User): AuthUser {
     username: user.username,
     displayName: user.displayName,
     avatarUrl: user.avatarUrl,
+    deletionScheduledAt: user.deletionScheduledAt,
+    createdAt: user.createdAt,
   };
 }

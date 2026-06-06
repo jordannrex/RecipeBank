@@ -62,7 +62,7 @@ export function ForgotPasswordForm() {
       {formError ? (
         <div
           role="alert"
-          className="rounded-lg border border-destructive/30 bg-red-50 px-3 py-2 text-sm text-destructive"
+          className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
         >
           {formError}
         </div>
@@ -71,7 +71,7 @@ export function ForgotPasswordForm() {
       {successMessage ? (
         <div
           role="status"
-          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          className="rounded-lg border border-banner bg-banner/20 px-3 py-2 text-sm text-text"
         >
           {successMessage}
         </div>

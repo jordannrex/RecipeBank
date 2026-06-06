@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import type { NextResponse } from "next/server";
 import { AUTH_COOKIE_NAME, JWT_EXPIRY_SECONDS } from "./constants";
-import { verifySessionToken, type SessionPayload } from "./session";
+import { verifySessionToken, type SessionPayload } from "./jwt";
 
 export type SessionCookieOptions = {
   httpOnly: true;
