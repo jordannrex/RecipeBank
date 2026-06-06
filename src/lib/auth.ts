@@ -2,7 +2,7 @@ import { apiError } from "@/lib/api";
 import { prisma } from "@/lib/db";
 import type { AuthUser } from "@/types/auth";
 import { getSession } from "./auth/cookies";
-import { getValidSession, renewSession } from "./auth/sessions";
+import { getValidSession, renewSession, shouldRenewSession } from "./auth/sessions";
 import { toAuthUser } from "./auth/user";
 
 export type AuthContext = {
@@ -21,7 +21,7 @@ export async function withAuth(): Promise<AuthContext | null> {
     return null;
   }
 
-  const session = await getValidSession(payload.sessionId);
+  const session = await getValidSession(payload.sessionToken);
   if (!session || session.userId !== payload.userId) {
     return null;
   }
@@ -34,11 +34,13 @@ export async function withAuth(): Promise<AuthContext | null> {
     return null;
   }
 
-  await renewSession(payload.sessionId);
+  if (shouldRenewSession(session)) {
+    await renewSession(session.id);
+  }
 
   return {
     user: toAuthUser(user),
-    sessionId: payload.sessionId,
+    sessionId: session.id,
   };
 }
 

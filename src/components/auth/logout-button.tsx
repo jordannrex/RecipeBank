@@ -34,7 +34,7 @@ export function LogoutButton({ className }: LogoutButtonProps) {
       onClick={handleLogout}
       disabled={isSubmitting}
       className={cn(
-        "block w-full px-4 py-2 text-left text-sm hover:bg-stone-50 disabled:opacity-60",
+        "block w-full px-4 py-2 text-left text-sm text-text hover:bg-card-hover disabled:opacity-60 transition-colors",
         className,
       )}
     >

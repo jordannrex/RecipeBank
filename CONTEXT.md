@@ -28,27 +28,51 @@ RecipeBank — full-stack recipe management app
 - [x] Seed script with demo user + sample recipe
 - [x] `.env.example`, `README.md`, health check route (`/api/health`)
 
-### Auth — complete
+### Auth & Account Settings — complete (Phase 1)
 
 - [x] Register, login, logout UI
-- [x] JWT via httpOnly cookie
-- [x] `/api/auth/*` routes
-- [x] `withAuth()` middleware wrapper
-- [x] Password reset flow (email verification deferred — see Known issues)
+- [x] JWT via httpOnly cookie — token stored only as sha256 hash in DB (`sessions.tokenHash`); raw token travels only in signed JWT
+- [x] `/api/auth/*` routes (register, login, logout, forgot-password, reset-password)
+- [x] `withAuthHandler()` wrapper for API routes; `withAuth()` + `getCurrentUser()` for server components
+- [x] Password reset flow (email delivery via native SMTP — see Known issues)
+- [x] Account settings: update display name + avatar URL (`PATCH /api/user/profile`)
+- [x] Change password (`POST /api/user/change-password`)
+- [x] Schedule / cancel account deletion — 30-day grace period (`DELETE|POST /api/user/delete-account`)
+- [x] Settings page (`/settings`) — profile, password, danger zone
+- [x] Profile page (`/profile`) — read-only user info display
 
-### Recipes — schema only
+### Recipes — Phase 1 API complete, UI pending (Phase 2)
 
 - [x] User model + full Recipe model (Prisma schema complete)
-- [ ] Recipe CRUD: create (manual), read, update, delete
-- [ ] Recipe import from URL — not started
-- [ ] AI embedding generation on import / edit
-- [ ] Semantic search API (pgvector query wired at lib level only)
+- [x] `GET /api/recipes` — paginated list with filters (q, favorites, cuisine, dishType, complexity)
+- [x] `POST /api/recipes` — create recipe with nested ingredient groups + steps
+- [x] `GET /api/recipes/[id]` — full recipe with all relations
+- [x] `PATCH /api/recipes/[id]` — partial update; ingredient groups and steps replaced wholesale when provided
+- [x] `DELETE /api/recipes/[id]` — delete (cascades to all relations)
+- [ ] Recipe UI: Recipe Bank grid, Recipe detail page — Phase 2
+- [ ] Recipe import from URL — Phase 3
+- [ ] AI embedding generation on import / edit — Phase 3
+- [ ] Semantic search API (pgvector query wired at lib level only) — Phase 3
 
-### UI components — not started
+### Design system — complete (Phase 1 Styling)
 
-- [ ] `RecipeCard`, `RecipeGrid`, preview drawer, import modal
-- [ ] Calendar views (day / week / month)
-- [ ] Shopping list tabs (General / By Recipe)
+- [x] Rowdies brand font loaded via `next/font/google` (`--font-rowdies` / `font-brand` utility)
+- [x] CSS variable design tokens — light and dark values in `:root` / `.dark`; all mapped to Tailwind utilities via `@theme inline`
+- [x] Brand colors: `brand-red` (#ff3131), `brand-pink` (#e8b8b8), `brand-black` (#000000), `brand-white` (#ffffff)
+- [x] Semantic colors: `--background`, `--text`, `--banner`, `--highlight`, `--logo-accent`, `--logo-primary`
+- [x] Dark mode: `.dark` class on `<html>`; localStorage persistence; anti-flash script in root layout
+- [x] `<Logo />` — Rowdies wordmark, "Recipe" in brand-red, "Bank" in black/white per theme
+- [x] `<Button />` — primary (brand-red fill) + secondary (outlined) + ghost variants
+- [x] `<Input />` — with optional `label` prop; all colors via CSS vars
+- [x] `<Label />` — CSS vars
+- [x] `<Card />` — 16:9 photo slot; placeholder plate icon when no photo; CSS vars
+- [x] `<Badge />` — brand-pink pill; CSS vars
+- [x] `<NavLink />` — active state via brand-red only (no underline/bold/bg)
+- [x] `<ThemeToggle />` — sun/moon icon button; writes to localStorage
+- [x] `AppNav` updated — uses Logo, NavLink, ThemeToggle
+- [ ] `RecipeCard`, `RecipeGrid`, preview drawer, import modal — Phase 2
+- [ ] Calendar views (day / week / month) — Phase 4
+- [ ] Shopping list tabs (General / By Recipe) — Phase 4
 
 ---
 
@@ -57,17 +81,20 @@ RecipeBank — full-stack recipe management app
 ### Current (scaffold)
 
 - **Source root:** `src/` with `@/*` import alias
-- **API routes:** `src/app/api/` (only `/api/health` exists today)
+- **API routes:** `src/app/api/` — auth at `/api/auth/`, user settings at `/api/user/`, recipes at `/api/recipes/`
 - **DB client:** singleton in `src/lib/db.ts` — import as `import { prisma } from "@/lib/db"`
-- **Auth helpers:** `src/lib/auth/{constants,password,session,cookies,sessions,tokens,validation}.ts` + `src/lib/auth.ts` (`withAuth`, `getCurrentUser`)
+- **Auth helpers:** `src/lib/auth/{constants,password,jwt,cookies,sessions,tokens,validation}.ts` + `src/lib/auth.ts` (`withAuthHandler`, `withAuth`, `getCurrentUser`)
 - **Types:** `src/types/{auth,recipe,shopping}.ts`
 - **Components:** grouped by domain under `src/components/{layout,recipes,calendar,shopping,ui}/`
-- **Styling:** Tailwind v4 via `@import "tailwindcss"` in `globals.css`; brand primary is amber (`--primary: #b45309`), not green-800
+- **Styling:** Tailwind v4 via `@import "tailwindcss"` in `globals.css`; all colors via CSS variables — no hardcoded hex or raw Tailwind color tokens in components
+- **Brand font:** Rowdies (`font-brand` Tailwind utility / `--font-brand` CSS var); body text uses Geist Sans
+- **Color system:** semantic vars (`--background`, `--text`, `--highlight`, `--banner`, `--logo-accent`, `--logo-primary`) + brand constants (`--brand-red` #ff3131, `--brand-pink` #e8b8b8, `--brand-black`, `--brand-white`); all mapped in `@theme inline`
+- **Dark mode:** `.dark` class on `<html>`; toggled by `<ThemeToggle />` (localStorage); anti-flash script injected in root layout before hydration
 - **Middleware:** `src/middleware.ts` — enforces auth; redirects unauthenticated users to `/login`
 
 ### Target (adopt as features are built)
 
-- API routes live in `src/app/api/`; protected routes use `withAuth()` from `src/lib/auth.ts`
+- API routes live in `src/app/api/`; protected routes use `withAuthHandler()` from `src/lib/auth.ts`
 - DB client alias: consider renaming `db.ts` → `prisma.ts` for consistency
 - All API responses follow `{ data, error }` shape
 - Tailwind brand color: align with PRD or switch to `green-800` if design direction changes
@@ -81,7 +108,8 @@ RecipeBank — full-stack recipe management app
 - **TikTok import:** Deferred — revisit after core URL/blog import works
 - **Next.js version:** Running Next.js 15 (template referenced 14; no action needed)
 - **Auth middleware:** Cookie name is `recipebank_session` (`AUTH_COOKIE_NAME` in `src/lib/auth/constants.ts`)
-- **Email delivery:** Password reset emails log to console until `SMTP_*` env vars are configured (`src/lib/email.ts`)
+- **Email delivery:** Password reset emails log to console when `SMTP_HOST` is not set. When set, the SMTP client in `src/lib/email.ts` handles AUTH PLAIN + STARTTLS (port 587) and direct TLS (port 465).
+- **Rate limiting:** `/api/auth/login`, `/api/auth/register`, and `/api/auth/forgot-password` are guarded by an in-memory sliding window limiter (`src/lib/rate-limit.ts`). Each endpoint allows 10 hits per IP per 15-minute window (matching PRD spec) and returns HTTP 429 when the limit is exceeded. IP is read from `x-forwarded-for` (set by Railway's proxy). The store is a module-level `Map` — safe for Railway's single-process Node.js deployment but **not shared across replicas**. If horizontal scaling is ever added, replace `rateLimit()` with a Redis-backed equivalent (e.g. `ioredis` + Lua sliding window) and drop `src/lib/rate-limit.ts`.
 - **Email verification:** Schema + tokens exist; verification flow not implemented (PRD Phase 1 only specifies password reset)
 - **Recipe embedding field:** `Unsupported("vector(1536)")` in Prisma — raw SQL required for vector reads/writes until Prisma native vector support matures
 
@@ -93,8 +121,10 @@ RecipeBank — full-stack recipe management app
 src/
   app/
     (auth)/
-      login/page.tsx          # Placeholder
-      register/page.tsx       # Placeholder
+      login/page.tsx
+      register/page.tsx
+      forgot-password/page.tsx
+      reset-password/page.tsx
     (app)/
       home/page.tsx
       recipes/page.tsx
@@ -105,12 +135,14 @@ src/
       profile/page.tsx
       layout.tsx              # Wraps AppNav
     api/
-      health/route.ts         # Only API route so far
+      health/route.ts
       auth/                   # register, login, logout, forgot/reset-password, me
-      recipes/                # TODO: CRUD routes
+      user/                   # profile, change-password, delete-account
+      recipes/                # GET+POST list; [id]/ GET+PATCH+DELETE
   components/
     layout/app-nav.tsx
-    recipes/                  # TODO: RecipeCard, RecipeGrid, drawer, import modal
+    settings/                 # profile-form, change-password-form, delete-account-section
+    recipes/                  # Phase 2: RecipeCard, RecipeGrid, drawer, import modal
     calendar/
     shopping/
     ui/
@@ -119,7 +151,7 @@ src/
     auth/
       constants.ts
       password.ts
-      session.ts              # JWT sign/verify
+      jwt.ts                  # JWT sign/verify (session.ts re-exports for compat)
     embeddings.ts             # pgvector search helper
     units.ts                  # Conversion + fraction display
     utils.ts                  # cn() helper

@@ -6,8 +6,18 @@ import { createUserSession } from "@/lib/auth/sessions";
 import { toAuthUser } from "@/lib/auth/user";
 import { registerSchema } from "@/lib/auth/validation";
 import { prisma } from "@/lib/db";
+import { getClientIp, rateLimit } from "@/lib/rate-limit";
+
+const RATE_LIMIT = { limit: 10, windowMs: 15 * 60 * 1000 };
 
 export async function POST(request: Request) {
+  const ip = getClientIp(request);
+  const rl = rateLimit(`register:${ip}`, RATE_LIMIT);
+
+  if (!rl.success) {
+    return apiError("Too many registration attempts. Please try again later.", 429);
+  }
+
   let body: unknown;
 
   try {
@@ -49,8 +59,8 @@ export async function POST(request: Request) {
     },
   });
 
-  const { token } = await createUserSession(user.id, true);
+  const { token } = await createUserSession(user.id, false);
 
   const response = apiSuccess(toAuthUser(user), 201);
-  return setSessionCookie(response as NextResponse, token, true);
+  return setSessionCookie(response as NextResponse, token, false);
 }

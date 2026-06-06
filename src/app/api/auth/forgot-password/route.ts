@@ -3,6 +3,7 @@ import { apiError, apiSuccess } from "@/lib/api";
 import { createPasswordResetToken } from "@/lib/auth/password-reset";
 import { sendEmail } from "@/lib/email";
 import { prisma } from "@/lib/db";
+import { getClientIp, rateLimit } from "@/lib/rate-limit";
 
 const forgotPasswordSchema = z.object({
   email: z.string().email(),
@@ -11,7 +12,16 @@ const forgotPasswordSchema = z.object({
 const GENERIC_MESSAGE =
   "If an account exists for that email, you will receive a password reset link shortly.";
 
+const RATE_LIMIT = { limit: 10, windowMs: 15 * 60 * 1000 };
+
 export async function POST(request: Request) {
+  const ip = getClientIp(request);
+  const rl = rateLimit(`forgot-password:${ip}`, RATE_LIMIT);
+
+  if (!rl.success) {
+    return apiError("Too many requests. Please try again later.", 429);
+  }
+
   let body: unknown;
 
   try {

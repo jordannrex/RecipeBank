@@ -6,8 +6,18 @@ import { createUserSession } from "@/lib/auth/sessions";
 import { toAuthUser } from "@/lib/auth/user";
 import { loginSchema } from "@/lib/auth/validation";
 import { prisma } from "@/lib/db";
+import { getClientIp, rateLimit } from "@/lib/rate-limit";
+
+const RATE_LIMIT = { limit: 10, windowMs: 15 * 60 * 1000 };
 
 export async function POST(request: Request) {
+  const ip = getClientIp(request);
+  const rl = rateLimit(`login:${ip}`, RATE_LIMIT);
+
+  if (!rl.success) {
+    return apiError("Too many login attempts. Please try again later.", 429);
+  }
+
   let body: unknown;
 
   try {
