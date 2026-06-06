@@ -1,0 +1,308 @@
+// RecipeBank — PostgreSQL schema with pgvector for semantic search
+// https://www.prisma.io/docs/orm/prisma-schema/postgresql-extensions
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// ---------------------------------------------------------------------------
+// Authentication & User Management
+// ---------------------------------------------------------------------------
+
+model User {
+  id              String    @id @default(cuid())
+  email           String    @unique
+  username        String    @unique @db.VarChar(64)
+  displayName     String    @map("display_name")
+  passwordHash    String    @map("password_hash")
+  avatarUrl       String?   @map("avatar_url")
+  emailVerified   Boolean   @default(false) @map("email_verified")
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  deletionScheduledAt DateTime? @map("deletion_scheduled_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  recipes       Recipe[]
+  recipeNotes   RecipeNote[]
+  recipeEdits   RecipeEdit[]
+  cookLogs      CookLog[]
+  mealPlans     MealPlan[]
+  shoppingLists ShoppingList[]
+  sessions      Session[]
+  passwordResetTokens PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  rememberMe Boolean @default(false) @map("remember_me")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  tokenHash String   @unique @map("token_hash")
+  expiresAt DateTime @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("email_verification_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Recipes
+// ---------------------------------------------------------------------------
+
+enum Complexity {
+  EASY
+  MEDIUM
+  HARD
+}
+
+model Recipe {
+  id            String     @id @default(cuid())
+  userId        String     @map("user_id")
+  title         String
+  description   String?    @db.Text
+  photoUrl      String?    @map("photo_url")
+  sourceUrl     String?    @map("source_url")
+  servings      Int        @default(4)
+  currentServings Int      @default(4) @map("current_servings")
+  prepTimeMinutes  Int?    @map("prep_time_minutes")
+  cookTimeMinutes  Int?    @map("cook_time_minutes")
+  complexity    Complexity @default(MEDIUM)
+  dishType      String?    @map("dish_type")
+  cuisine       String?
+  flavorProfile String?    @map("flavor_profile") @db.Text
+  isFavorite    Boolean    @default(false) @map("is_favorite")
+  cookCount     Int        @default(0) @map("cook_count")
+  lastCookedAt  DateTime?  @map("last_cooked_at")
+  // OpenAI text-embedding-3-small produces 1536-dimensional vectors
+  embedding     Unsupported("vector(1536)")?
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ingredientGroups  IngredientGroup[]
+  steps             RecipeStep[]
+  notes             RecipeNote[]
+  edits             RecipeEdit[]
+  cookLogs          CookLog[]
+  mealPlans         MealPlan[]
+  shoppingLists     ShoppingList[]
+  shoppingItems     ShoppingItem[]
+
+  @@index([userId])
+  @@index([userId, isFavorite])
+  @@index([userId, cuisine])
+  @@index([userId, dishType])
+  @@index([userId, complexity])
+  @@map("recipes")
+}
+
+model IngredientGroup {
+  id        String   @id @default(cuid())
+  recipeId  String   @map("recipe_id")
+  name      String
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  recipe      Recipe       @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  ingredients Ingredient[]
+
+  @@index([recipeId])
+  @@map("ingredient_groups")
+}
+
+model Ingredient {
+  id                String   @id @default(cuid())
+  ingredientGroupId String   @map("ingredient_group_id")
+  quantity          Decimal? @db.Decimal(10, 4)
+  unit              String?
+  name              String
+  preparation       String?
+  isOptional        Boolean  @default(false) @map("is_optional")
+  sortOrder         Int      @default(0) @map("sort_order")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  ingredientGroup IngredientGroup @relation(fields: [ingredientGroupId], references: [id], onDelete: Cascade)
+  shoppingItems   ShoppingItem[]
+
+  @@index([ingredientGroupId])
+  @@map("ingredients")
+}
+
+model RecipeStep {
+  id            String   @id @default(cuid())
+  recipeId      String   @map("recipe_id")
+  sectionHeader String?  @map("section_header")
+  body          String   @db.Text
+  sortOrder     Int      @default(0) @map("sort_order")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@index([recipeId])
+  @@map("recipe_steps")
+}
+
+model RecipeNote {
+  id        String   @id @default(cuid())
+  recipeId  String   @map("recipe_id")
+  userId    String   @map("user_id")
+  body      String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([recipeId])
+  @@index([userId])
+  @@map("recipe_notes")
+}
+
+model RecipeEdit {
+  id        String   @id @default(cuid())
+  recipeId  String   @map("recipe_id")
+  userId    String   @map("user_id")
+  fieldName String   @map("field_name")
+  oldValue  String?  @map("old_value") @db.Text
+  newValue  String?  @map("new_value") @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([recipeId])
+  @@index([userId])
+  @@map("recipe_edits")
+}
+
+model CookLog {
+  id        String   @id @default(cuid())
+  recipeId  String   @map("recipe_id")
+  userId    String   @map("user_id")
+  cookedAt  DateTime @map("cooked_at") @db.Date
+  notes     String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([recipeId])
+  @@index([userId])
+  @@index([userId, cookedAt])
+  @@map("cook_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Meal Planning
+// ---------------------------------------------------------------------------
+
+model MealPlan {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  recipeId    String   @map("recipe_id")
+  plannedDate DateTime @map("planned_date") @db.Date
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@index([userId, plannedDate])
+  @@index([recipeId])
+  @@map("meal_plans")
+}
+
+// ---------------------------------------------------------------------------
+// Shopping Lists
+// ---------------------------------------------------------------------------
+
+model ShoppingList {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  recipeId  String?  @map("recipe_id")
+  name      String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe Recipe?       @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+  items ShoppingItem[]
+
+  @@index([userId])
+  @@index([recipeId])
+  @@map("shopping_lists")
+}
+
+model ShoppingItem {
+  id             String   @id @default(cuid())
+  shoppingListId String   @map("shopping_list_id")
+  ingredientId   String?  @map("ingredient_id")
+  recipeId       String?  @map("recipe_id")
+  name           String
+  quantity       Decimal? @db.Decimal(10, 4)
+  unit           String?
+  isChecked      Boolean  @default(false) @map("is_checked")
+  storeQuantity  Decimal? @map("store_quantity") @db.Decimal(10, 4)
+  storeUnit      String?  @map("store_unit")
+  price          Decimal? @db.Decimal(10, 2)
+  calculatedCost Decimal? @map("calculated_cost") @db.Decimal(10, 2)
+  isManual       Boolean  @default(false) @map("is_manual")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  shoppingList ShoppingList @relation(fields: [shoppingListId], references: [id], onDelete: Cascade)
+  ingredient   Ingredient?  @relation(fields: [ingredientId], references: [id], onDelete: SetNull)
+  recipe       Recipe?      @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+
+  @@index([shoppingListId])
+  @@index([ingredientId])
+  @@index([recipeId])
+  @@map("shopping_items")
+}
