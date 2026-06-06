@@ -2,7 +2,7 @@ import { z } from "zod";
 import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { getOwnedRecipe } from "@/app/api/recipes/[id]/route";
+import { getOwnedRecipe } from "@/lib/recipe-helpers";
 
 const noteSchema = z.object({
   body: z.string().min(1, "Note cannot be empty").max(10_000, "Note is too long"),

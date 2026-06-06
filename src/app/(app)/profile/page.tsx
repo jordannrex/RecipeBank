@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AvatarDisplay } from "@/components/ui/avatar-display";
 import { getCurrentUser } from "@/lib/auth";
 
 function getInitials(displayName: string) {
@@ -23,17 +24,11 @@ export default async function ProfilePage() {
   return (
     <div className="mx-auto max-w-xl space-y-8">
       <div className="flex items-center gap-6">
-        {user.avatarUrl ? (
-          <img
-            src={user.avatarUrl}
-            alt={`${user.displayName}'s avatar`}
-            className="h-20 w-20 rounded-full object-cover"
-          />
-        ) : (
-          <div className="flex h-20 w-20 items-center justify-center rounded-full bg-amber-100 text-2xl font-bold text-amber-800">
-            {getInitials(user.displayName)}
-          </div>
-        )}
+        <AvatarDisplay
+          config={user.avatarConfig}
+          fallback={getInitials(user.displayName)}
+          size={80}
+        />
         <div>
           <h1 className="text-2xl font-bold text-foreground">{user.displayName}</h1>
           <p className="text-sm text-muted">@{user.username}</p>

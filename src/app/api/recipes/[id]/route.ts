@@ -2,7 +2,8 @@ import { z } from "zod";
 import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { ingredientGroupSchema, stepSchema } from "@/app/api/recipes/route";
+import { ingredientGroupSchema, stepSchema } from "@/lib/recipe-schemas";
+import { getOwnedRecipe } from "@/lib/recipe-helpers";
 import type { Recipe } from "@prisma/client";
 
 const recipeUpdateSchema = z.object({
@@ -16,6 +17,7 @@ const recipeUpdateSchema = z.object({
   cuisine: z.string().max(100).nullable().optional(),
   flavorProfile: z.string().max(500).nullable().optional(),
   isFavorite: z.boolean().optional(),
+  photoUrl: z.string().nullable().optional(),
   // When provided, replaces all existing groups + their ingredients.
   ingredientGroups: z.array(ingredientGroupSchema).optional(),
   // When provided, replaces all existing steps.
@@ -29,18 +31,6 @@ const recipeInclude = {
   },
   steps: { orderBy: { sortOrder: "asc" as const } },
 } as const;
-
-/**
- * Fetches a recipe and verifies ownership.
- * Returns { recipe, error: null } on success or { recipe: null, error: Response } on failure.
- * Exported so sub-routes (favorite, notes, cook-log, edits) can reuse it.
- */
-export async function getOwnedRecipe(id: string, userId: string) {
-  const recipe = await prisma.recipe.findUnique({ where: { id } });
-  if (!recipe) return { recipe: null, error: apiError("Recipe not found", 404) };
-  if (recipe.userId !== userId) return { recipe: null, error: apiError("Forbidden", 403) };
-  return { recipe, error: null };
-}
 
 // ---------------------------------------------------------------------------
 // Helpers for edit tracking

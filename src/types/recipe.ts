@@ -57,3 +57,65 @@ export type RecipeEditsResponse = {
 };
 
 export { Complexity };
+
+// ---------------------------------------------------------------------------
+// Serialized types for server → client component boundaries
+// (Dates become ISO strings, Decimal becomes string)
+// ---------------------------------------------------------------------------
+
+export type SerializedIngredient = {
+  id: string;
+  ingredientGroupId: string;
+  quantity: string | null;
+  unit: string | null;
+  name: string;
+  preparation: string | null;
+  isOptional: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SerializedIngredientGroup = {
+  id: string;
+  recipeId: string;
+  name: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  ingredients: SerializedIngredient[];
+};
+
+export type SerializedRecipeStep = {
+  id: string;
+  recipeId: string;
+  sectionHeader: string | null;
+  body: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SerializedRecipeWithRelations = {
+  id: string;
+  userId: string;
+  title: string;
+  description: string | null;
+  photoUrl: string | null;
+  sourceUrl: string | null;
+  servings: number;
+  currentServings: number;
+  prepTimeMinutes: number | null;
+  cookTimeMinutes: number | null;
+  complexity: Complexity;
+  dishType: string | null;
+  cuisine: string | null;
+  flavorProfile: string | null;
+  isFavorite: boolean;
+  cookCount: number;
+  lastCookedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  ingredientGroups: SerializedIngredientGroup[];
+  steps: SerializedRecipeStep[];
+};

@@ -12,26 +12,24 @@ const schema = z.object({
     .string()
     .min(1, "Display name is required")
     .max(128, "Display name must be at most 128 characters"),
-  avatarUrl: z.union([z.string().url("Must be a valid URL"), z.literal("")]).optional(),
 });
 
 type Props = { user: AuthUser };
 
 export function ProfileForm({ user }: Props) {
   const [displayName, setDisplayName] = useState(user.displayName);
-  const [avatarUrl, setAvatarUrl] = useState(user.avatarUrl ?? "");
-  const [errors, setErrors] = useState<{ displayName?: string; avatarUrl?: string }>({});
+  const [errors, setErrors] = useState<{ displayName?: string }>({});
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const isDirty = displayName !== user.displayName || avatarUrl !== (user.avatarUrl ?? "");
+  const isDirty = displayName !== user.displayName;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErrors({});
     setErrorMsg(null);
 
-    const parsed = schema.safeParse({ displayName, avatarUrl: avatarUrl || undefined });
+    const parsed = schema.safeParse({ displayName });
     if (!parsed.success) {
       const errs: typeof errors = {};
       for (const issue of parsed.error.issues) {
@@ -48,10 +46,7 @@ export function ProfileForm({ user }: Props) {
       const response = await fetch("/api/user/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          displayName,
-          avatarUrl: avatarUrl || null,
-        }),
+        body: JSON.stringify({ displayName }),
       });
 
       if (!response.ok) {
@@ -89,21 +84,6 @@ export function ProfileForm({ user }: Props) {
           error={errors.displayName}
           disabled={status === "saving"}
         />
-      </div>
-
-      <div>
-        <Label htmlFor="avatarUrl">Avatar URL <span className="font-normal text-muted">(optional)</span></Label>
-        <Input
-          id="avatarUrl"
-          name="avatarUrl"
-          type="url"
-          placeholder="https://example.com/photo.jpg"
-          value={avatarUrl}
-          onChange={(e) => setAvatarUrl(e.target.value)}
-          error={errors.avatarUrl}
-          disabled={status === "saving"}
-        />
-        <p className="mt-1 text-xs text-muted">Paste a direct link to an image. Photo upload coming in a future update.</p>
       </div>
 
       <div className="flex items-center gap-3">
