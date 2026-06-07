@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+/** Auto-grow a textarea to fit its content. */
+function growTextarea(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight}px`;
+}
 import {
   DndContext,
   closestCenter,
@@ -91,6 +98,7 @@ async function resizeImage(file: File, maxDim = 900): Promise<string> {
 // ---------------------------------------------------------------------------
 
 type EditIngredient = {
+  _key: string;
   name: string;
   quantity: string;
   unit: string;
@@ -99,6 +107,7 @@ type EditIngredient = {
 };
 
 type EditGroup = {
+  _key: string;
   name: string;
   ingredients: EditIngredient[];
 };
@@ -111,6 +120,7 @@ type EditStep = {
 type EditState = {
   title: string;
   description: string;
+  sourceUrl: string;
   cuisine: string;
   dishType: string;
   complexity: "EASY" | "MEDIUM" | "HARD";
@@ -126,6 +136,7 @@ function initEditState(r: SerializedRecipeWithRelations): EditState {
   return {
     title: r.title,
     description: r.description ?? "",
+    sourceUrl: r.sourceUrl ?? "",
     cuisine: r.cuisine ?? "",
     dishType: r.dishType ?? "",
     complexity: r.complexity,
@@ -135,18 +146,20 @@ function initEditState(r: SerializedRecipeWithRelations): EditState {
     photoUrl: r.photoUrl ?? null,
     groups: r.ingredientGroups.length > 0
       ? r.ingredientGroups.map((g) => ({
+          _key: crypto.randomUUID(),
           name: g.name,
           ingredients: g.ingredients.length > 0
             ? g.ingredients.map((i) => ({
+                _key: crypto.randomUUID(),
                 name: i.name,
                 quantity: i.quantity?.toString() ?? "",
                 unit: i.unit ?? "",
                 preparation: i.preparation ?? "",
                 isOptional: i.isOptional,
               }))
-            : [{ name: "", quantity: "", unit: "", preparation: "", isOptional: false }],
+            : [{ _key: crypto.randomUUID(), name: "", quantity: "", unit: "", preparation: "", isOptional: false }],
         }))
-      : [{ name: "", ingredients: [{ name: "", quantity: "", unit: "", preparation: "", isOptional: false }] }],
+      : [{ _key: crypto.randomUUID(), name: "", ingredients: [{ _key: crypto.randomUUID(), name: "", quantity: "", unit: "", preparation: "", isOptional: false }] }],
     steps: r.steps.length > 0
       ? r.steps.map((s) => ({ body: s.body, sectionHeader: s.sectionHeader ?? "" }))
       : [{ body: "", sectionHeader: "" }],
@@ -154,9 +167,11 @@ function initEditState(r: SerializedRecipeWithRelations): EditState {
 }
 
 function buildPatchPayload(edit: EditState) {
+  const sourceUrl = edit.sourceUrl.trim();
   return {
     title: edit.title.trim(),
     description: edit.description.trim() || null,
+    sourceUrl: sourceUrl || null,
     cuisine: edit.cuisine.trim() || null,
     dishType: edit.dishType.trim() || null,
     complexity: edit.complexity,
@@ -318,22 +333,30 @@ function ViewMode({
       {recipe.ingredientGroups.length > 0 && (
         <section aria-labelledby="ingredients-heading">
           <h2 id="ingredients-heading" className="mb-3 text-base font-semibold text-text">Ingredients</h2>
-          <div className="space-y-4">
+          <div className="space-y-5">
             {recipe.ingredientGroups.map((group) => (
               <div key={group.id}>
                 {group.name && (
-                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted">{group.name}</p>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-widest text-muted">{group.name}</p>
                 )}
-                <ul className="space-y-1">
-                  {group.ingredients.map((ing) => (
-                    <li key={ing.id} className="flex items-baseline gap-2 text-sm">
-                      <span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-muted" aria-hidden="true" />
-                      <span className={ing.isOptional ? "text-muted" : "text-text"}>
-                        {formatIngredient(ing.name, scaleQty(ing.quantity, scale), ing.unit, ing.preparation)}
-                        {ing.isOptional && <span className="ml-1 text-xs text-muted">(optional)</span>}
-                      </span>
-                    </li>
-                  ))}
+                <ul className="divide-y divide-border">
+                  {group.ingredients.map((ing) => {
+                    const scaledQty = scaleQty(ing.quantity, scale);
+                    const qtyNum = scaledQty ? parseFloat(scaledQty) : null;
+                    const qtyUnit = [qtyNum != null ? String(qtyNum) : null, ing.unit || null].filter(Boolean).join(" ");
+                    return (
+                      <li key={ing.id} className="flex items-center justify-between gap-4 py-3">
+                        <span className={cn("text-sm", ing.isOptional ? "text-muted" : "text-text")}>
+                          {ing.name}
+                          {ing.preparation && <span className="ml-1 text-xs text-muted">({ing.preparation})</span>}
+                          {ing.isOptional && <span className="ml-1.5 text-xs text-muted italic">optional</span>}
+                        </span>
+                        {qtyUnit && (
+                          <span className="flex-shrink-0 text-sm font-semibold text-text">{qtyUnit}</span>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             ))}
@@ -561,19 +584,59 @@ function PriceCalculatorMode({
       name: i.name,
       quantity: i.quantity,
       unit: i.unit,
+      storePkgQty:  i.storePkgQty,
+      storePkgUnit: i.storePkgUnit,
+      price:        i.price,
     }))
   );
 
   const scale = baseServings > 0 ? currentServings / baseServings : 1;
 
+  // Seed rows from persisted ingredient price data
   const [rows, setRows] = useState<Record<string, PriceRow>>(() =>
     Object.fromEntries(
-      allIngredients.map((i) => [i.id, { storePkgQty: "", storePkgUnit: i.unit ?? "", price: "" }])
+      allIngredients.map((i) => [
+        i.id,
+        {
+          storePkgQty:  i.storePkgQty  ?? "",
+          storePkgUnit: i.storePkgUnit ?? i.unit ?? "",
+          price:        i.price        ?? "",
+        },
+      ])
     )
   );
 
+  // Debounce timer refs keyed by ingredient id
+  const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
   function setField(id: string, field: keyof PriceRow, val: string) {
-    setRows((prev) => ({ ...prev, [id]: { ...prev[id], [field]: val } }));
+    setRows((prev) => {
+      const next = { ...prev, [id]: { ...prev[id], [field]: val } };
+      return next;
+    });
+    // Debounced save — 700ms after last keystroke per ingredient
+    const existing = saveTimers.current.get(id);
+    if (existing) clearTimeout(existing);
+    saveTimers.current.set(
+      id,
+      setTimeout(() => {
+        saveTimers.current.delete(id);
+        setRows((current) => {
+          const row = current[id];
+          if (!row) return current;
+          fetch(`/api/ingredients/${id}/price`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              storePkgQty:  row.storePkgQty  ? parseFloat(row.storePkgQty)  : null,
+              storePkgUnit: row.storePkgUnit || null,
+              price:        row.price        ? parseFloat(row.price)        : null,
+            }),
+          }).catch(console.error);
+          return current;
+        });
+      }, 700),
+    );
   }
 
   const totalCost = allIngredients.reduce<number | null>((acc, ing) => {
@@ -755,14 +818,18 @@ function SortableIngredientRow({
   id,
   ing,
   canRemove,
+  selected,
   onSet,
   onRemove,
+  onToggleSelect,
 }: {
   id: string;
   ing: EditIngredient;
   canRemove: boolean;
+  selected: boolean;
   onSet: (field: keyof EditIngredient, val: string | boolean) => void;
   onRemove: () => void;
+  onToggleSelect: (shiftHeld: boolean) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id });
@@ -774,7 +841,25 @@ function SortableIngredientRow({
   };
 
   return (
-    <div ref={setNodeRef} style={style} className="flex gap-2 items-start">
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "flex gap-2 items-start rounded-lg px-1 transition-colors",
+        selected && "bg-highlight/10 ring-1 ring-inset ring-highlight/30",
+      )}
+    >
+      {/* Select circle */}
+      <button
+        type="button"
+        onClick={(e) => onToggleSelect(e.shiftKey)}
+        aria-label={selected ? "Deselect" : "Select ingredient"}
+        aria-pressed={selected}
+        className={cn(
+          "mt-2.5 h-3.5 w-3.5 flex-shrink-0 rounded-full border-2 transition-colors",
+          selected ? "border-highlight bg-highlight" : "border-border bg-transparent hover:border-highlight/60",
+        )}
+      />
       {/* Drag handle */}
       <button
         type="button"
@@ -835,24 +920,28 @@ function SortableGroup({
   gi,
   group,
   showHeader,
+  selectedIngIds,
   onNameChange,
   onRemoveGroup,
   onAddIngredient,
   onSetIngredient,
   onRemoveIngredient,
+  onToggleIngredientSelect,
 }: {
   gi: number;
   group: EditGroup;
   showHeader: boolean;
+  selectedIngIds: Set<string>;
   onNameChange: (v: string) => void;
   onRemoveGroup: () => void;
   onAddIngredient: () => void;
   onSetIngredient: (ii: number, field: keyof EditIngredient, val: string | boolean) => void;
   onRemoveIngredient: (ii: number) => void;
+  onToggleIngredientSelect: (ingId: string, shiftHeld: boolean) => void;
 }) {
-  const groupId = `group-${gi}`;
+  // Use group._key as the stable DnD ID
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: groupId });
+    useSortable({ id: group._key });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -860,13 +949,13 @@ function SortableGroup({
     opacity: isDragging ? 0.4 : 1,
   };
 
-  const ingredientIds = group.ingredients.map((_, ii) => `group-${gi}-ing-${ii}`);
+  const ingredientIds = group.ingredients.map((i) => `${group._key}::${i._key}`);
 
   return (
     <div ref={setNodeRef} style={style} className="rounded-xl border border-border bg-card/50 p-3 space-y-2">
       {showHeader && (
         <div className="flex items-center gap-2">
-          {/* Group drag handle */}
+          {/* Group drag handle — only this element triggers group drag */}
           <button
             type="button"
             className="flex-shrink-0 cursor-grab touch-none text-muted hover:text-text active:cursor-grabbing"
@@ -890,16 +979,21 @@ function SortableGroup({
       )}
 
       <SortableContext items={ingredientIds} strategy={verticalListSortingStrategy}>
-        {group.ingredients.map((ing, ii) => (
-          <SortableIngredientRow
-            key={`group-${gi}-ing-${ii}`}
-            id={`group-${gi}-ing-${ii}`}
-            ing={ing}
-            canRemove={group.ingredients.length > 1}
-            onSet={(field, val) => onSetIngredient(ii, field, val)}
-            onRemove={() => onRemoveIngredient(ii)}
-          />
-        ))}
+        {group.ingredients.map((ing, ii) => {
+          const ingId = `${group._key}::${ing._key}`;
+          return (
+            <SortableIngredientRow
+              key={ingId}
+              id={ingId}
+              ing={ing}
+              canRemove={group.ingredients.length > 1}
+              selected={selectedIngIds.has(ingId)}
+              onSet={(field, val) => onSetIngredient(ii, field, val)}
+              onRemove={() => onRemoveIngredient(ii)}
+              onToggleSelect={(shiftHeld) => onToggleIngredientSelect(ingId, shiftHeld)}
+            />
+          );
+        })}
       </SortableContext>
 
       <button type="button" onClick={onAddIngredient} className="text-xs text-highlight hover:opacity-80">
@@ -921,11 +1015,85 @@ function EditMode({
   const [error, setError] = useState<string | null>(null);
   const [photoLoading, setPhotoLoading] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [suggestedFields, setSuggestedFields] = useState<Set<string>>(new Set());
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestError, setSuggestError] = useState<string | null>(null);
+  const [selectedIngIds, setSelectedIngIds] = useState<Set<string>>(new Set());
+  const lastSelectedIngRef = useRef<string | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
+  }
+
+  // DnD IDs: group._key (no "::") for groups; "${group._key}::${ing._key}" for ingredients
+  const isGroupDndId = (id: string) => !id.includes("::");
+  const isIngDndId   = (id: string) =>  id.includes("::");
+
+  function findGroupIdx(key: string) {
+    return form.groups.findIndex((g) => g._key === key);
+  }
+  function findIngIdx(id: string) {
+    const sep = id.indexOf("::");
+    if (sep === -1) return null;
+    const gKey = id.slice(0, sep);
+    const iKey = id.slice(sep + 2);
+    const gi = form.groups.findIndex((g) => g._key === gKey);
+    if (gi === -1) return null;
+    const ii = form.groups[gi].ingredients.findIndex((i) => i._key === iKey);
+    if (ii === -1) return null;
+    return { gi, ii };
+  }
+
+  function handleIngredientSelect(ingId: string, shiftHeld: boolean) {
+    if (shiftHeld && lastSelectedIngRef.current) {
+      const allIds = form.groups.flatMap((g) =>
+        g.ingredients.map((i) => `${g._key}::${i._key}`)
+      );
+      const lastIdx = allIds.indexOf(lastSelectedIngRef.current);
+      const thisIdx = allIds.indexOf(ingId);
+      if (lastIdx !== -1 && thisIdx !== -1) {
+        const [from, to] = lastIdx <= thisIdx ? [lastIdx, thisIdx] : [thisIdx, lastIdx];
+        setSelectedIngIds((prev) => {
+          const next = new Set(prev);
+          for (let i = from; i <= to; i++) next.add(allIds[i]);
+          return next;
+        });
+        return; // don't update lastSelected on shift-range
+      }
+    }
+    setSelectedIngIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(ingId)) next.delete(ingId);
+      else next.add(ingId);
+      return next;
+    });
+    lastSelectedIngRef.current = ingId;
+  }
+
+  function moveSelectedToGroup(targetGi: number) {
+    if (selectedIngIds.size === 0) return;
+    const collected: EditIngredient[] = [];
+    const clearedGroups = form.groups.map((g) => ({
+      ...g,
+      ingredients: g.ingredients.filter((i) => {
+        if (selectedIngIds.has(`${g._key}::${i._key}`)) { collected.push({ ...i }); return false; }
+        return true;
+      }),
+    }));
+    clearedGroups[targetGi] = {
+      ...clearedGroups[targetGi],
+      ingredients: [...clearedGroups[targetGi].ingredients, ...collected],
+    };
+    const finalGroups = clearedGroups.map((g) => ({
+      ...g,
+      ingredients: g.ingredients.length > 0 ? g.ingredients
+        : [{ _key: crypto.randomUUID(), name: "", quantity: "", unit: "", preparation: "", isOptional: false }],
+    }));
+    setForm((prev) => ({ ...prev, groups: finalGroups }));
+    setSelectedIngIds(new Set());
+    lastSelectedIngRef.current = null;
   }
 
   function handleDragEnd(event: DragEndEvent) {
@@ -934,15 +1102,13 @@ function EditMode({
     if (!over || active.id === over.id) return;
 
     const activeId = active.id as string;
-    const overId = over.id as string;
+    const overId   = over.id   as string;
 
-    const isGroup = (id: string) => id.startsWith("group-") && !id.includes("-ing-");
-    const isIng = (id: string) => id.includes("-ing-");
-
-    if (isGroup(activeId) && isGroup(overId)) {
-      // Reorder groups
-      const fromGi = parseInt(activeId.replace("group-", ""));
-      const toGi = parseInt(overId.replace("group-", ""));
+    // ── Group reorder ────────────────────────────────────────────────────────
+    if (isGroupDndId(activeId) && isGroupDndId(overId)) {
+      const fromGi = findGroupIdx(activeId);
+      const toGi   = findGroupIdx(overId);
+      if (fromGi === -1 || toGi === -1 || fromGi === toGi) return;
       setForm((prev) => {
         const groups = [...prev.groups];
         const [moved] = groups.splice(fromGi, 1);
@@ -952,24 +1118,19 @@ function EditMode({
       return;
     }
 
-    if (isIng(activeId)) {
-      // Parse ids: "group-{gi}-ing-{ii}"
-      const parseIng = (id: string) => {
-        const m = id.match(/^group-(\d+)-ing-(\d+)$/);
-        return m ? { gi: parseInt(m[1]), ii: parseInt(m[2]) } : null;
-      };
-      const src = parseIng(activeId);
+    // ── Ingredient move ──────────────────────────────────────────────────────
+    if (isIngDndId(activeId)) {
+      const src = findIngIdx(activeId);
       if (!src) return;
 
       let dstGi: number;
       let dstIi: number;
-
-      if (isGroup(overId)) {
-        // Dropped on a group header → move to first position in that group
-        dstGi = parseInt(overId.replace("group-", ""));
+      if (isGroupDndId(overId)) {
+        dstGi = findGroupIdx(overId);
+        if (dstGi === -1) return;
         dstIi = 0;
       } else {
-        const dst = parseIng(overId);
+        const dst = findIngIdx(overId);
         if (!dst) return;
         dstGi = dst.gi;
         dstIi = dst.ii;
@@ -977,11 +1138,42 @@ function EditMode({
 
       if (src.gi === dstGi && src.ii === dstIi) return;
 
+      // ── Multi-drag: dragged item is part of a selection ──────────────────
+      if (selectedIngIds.has(activeId) && selectedIngIds.size > 1) {
+        const collected: EditIngredient[] = [];
+        const clearedGroups = form.groups.map((g) => ({
+          ...g,
+          ingredients: g.ingredients.filter((i) => {
+            if (selectedIngIds.has(`${g._key}::${i._key}`)) { collected.push({ ...i }); return false; }
+            return true;
+          }),
+        }));
+        const targetIngs = clearedGroups[dstGi].ingredients;
+        const insertAt = Math.min(dstIi, targetIngs.length);
+        clearedGroups[dstGi] = {
+          ...clearedGroups[dstGi],
+          ingredients: [
+            ...targetIngs.slice(0, insertAt),
+            ...collected,
+            ...targetIngs.slice(insertAt),
+          ],
+        };
+        const finalGroups = clearedGroups.map((g) => ({
+          ...g,
+          ingredients: g.ingredients.length > 0 ? g.ingredients
+            : [{ _key: crypto.randomUUID(), name: "", quantity: "", unit: "", preparation: "", isOptional: false }],
+        }));
+        setForm((prev) => ({ ...prev, groups: finalGroups }));
+        setSelectedIngIds(new Set());
+        lastSelectedIngRef.current = null;
+        return;
+      }
+
+      // ── Single ingredient drag ───────────────────────────────────────────
       setForm((prev) => {
         const groups = prev.groups.map((g) => ({ ...g, ingredients: [...g.ingredients] }));
         const ingredient = groups[src.gi].ingredients[src.ii];
         groups[src.gi].ingredients.splice(src.ii, 1);
-        // Adjust index if same group and source was before destination
         const adjustedDstIi = src.gi === dstGi && src.ii < dstIi ? dstIi - 1 : dstIi;
         groups[dstGi].ingredients.splice(adjustedDstIi, 0, ingredient);
         return { ...prev, groups };
@@ -1006,6 +1198,70 @@ function EditMode({
     setForm((prev) => ({ ...prev, [key]: val }));
   }
 
+  function clearSuggested(field: string) {
+    setSuggestedFields((prev) => {
+      if (!prev.has(field)) return prev;
+      const next = new Set(prev);
+      next.delete(field);
+      return next;
+    });
+  }
+
+  async function handleSuggestMetadata() {
+    const ingredientNames = form.groups
+      .flatMap((g) => g.ingredients.map((i) => i.name))
+      .filter(Boolean);
+    const stepBodies = form.steps.map((s) => s.body).filter(Boolean);
+
+    setSuggesting(true);
+    setSuggestError(null);
+    try {
+      const res = await fetch("/api/recipes/suggest-metadata", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: form.title.trim(),
+          description: form.description.trim() || undefined,
+          ingredients: ingredientNames,
+          steps: stepBodies,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setSuggestError(json.error ?? "Couldn't generate suggestions.");
+        return;
+      }
+      const s = json.data as {
+        cuisine: string | null;
+        dishType: string | null;
+        complexity: "EASY" | "MEDIUM" | "HARD" | null;
+        prepTimeMinutes: number | null;
+        cookTimeMinutes: number | null;
+      };
+
+      // In edit mode, always apply non-null suggestions — the user explicitly
+      // asked for them. Fields turn brand-red to indicate AI-suggested values.
+      const newSuggested = new Set<string>();
+      const nextForm = { ...form };
+      if (s.cuisine)          { nextForm.cuisine = s.cuisine;                        newSuggested.add("cuisine"); }
+      if (s.dishType)         { nextForm.dishType = s.dishType;                      newSuggested.add("dishType"); }
+      if (s.complexity)       { nextForm.complexity = s.complexity;                  newSuggested.add("complexity"); }
+      if (s.prepTimeMinutes)  { nextForm.prepTimeMinutes = String(s.prepTimeMinutes); newSuggested.add("prepTimeMinutes"); }
+      if (s.cookTimeMinutes)  { nextForm.cookTimeMinutes = String(s.cookTimeMinutes); newSuggested.add("cookTimeMinutes"); }
+
+      if (newSuggested.size === 0) {
+        setSuggestError("No suggestions returned — try adding more detail to the recipe.");
+      } else {
+        setForm(nextForm);
+        setSuggestedFields(newSuggested);
+      }
+    } catch {
+      setSuggestError("Network error — please try again.");
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
   function setIngredient(gi: number, ii: number, field: keyof EditIngredient, val: string | boolean) {
     setForm((prev) => ({
       ...prev,
@@ -1024,12 +1280,17 @@ function EditMode({
     setForm((prev) => ({
       ...prev,
       groups: prev.groups.map((g, gIdx) =>
-        gIdx !== gi ? g : { ...g, ingredients: [...g.ingredients, { name: "", quantity: "", unit: "", preparation: "", isOptional: false }] }
+        gIdx !== gi ? g : { ...g, ingredients: [...g.ingredients, { _key: crypto.randomUUID(), name: "", quantity: "", unit: "", preparation: "", isOptional: false }] }
       ),
     }));
   }
 
   function removeIngredient(gi: number, ii: number) {
+    const ingId = `${form.groups[gi]._key}::${form.groups[gi].ingredients[ii]._key}`;
+    setSelectedIngIds((prev) => {
+      if (!prev.has(ingId)) return prev;
+      const next = new Set(prev); next.delete(ingId); return next;
+    });
     setForm((prev) => ({
       ...prev,
       groups: prev.groups.map((g, gIdx) =>
@@ -1048,7 +1309,7 @@ function EditMode({
   function addGroup() {
     setForm((prev) => ({
       ...prev,
-      groups: [...prev.groups, { name: "", ingredients: [{ name: "", quantity: "", unit: "", preparation: "", isOptional: false }] }],
+      groups: [...prev.groups, { _key: crypto.randomUUID(), name: "", ingredients: [{ _key: crypto.randomUUID(), name: "", quantity: "", unit: "", preparation: "", isOptional: false }] }],
     }));
   }
 
@@ -1084,6 +1345,8 @@ function EditMode({
       });
       const json = await res.json();
       if (!res.ok) { setError(json.error ?? "Failed to save"); return; }
+      setSuggestedFields(new Set());
+      setSelectedIngIds(new Set());
       onSaved(JSON.parse(JSON.stringify(json.data)) as SerializedRecipeWithRelations);
     } catch {
       setError("Something went wrong. Please try again.");
@@ -1102,11 +1365,32 @@ function EditMode({
           <textarea
             id="edit-desc"
             value={form.description}
-            onChange={(e) => setField("description", e.target.value)}
+            onChange={(e) => { setField("description", e.target.value); growTextarea(e.target); }}
+            ref={growTextarea}
             rows={2}
-            className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20 resize-none"
+            className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20 resize-none overflow-hidden"
           />
         </div>
+        {/* Source URL */}
+        <div>
+          <label htmlFor="edit-source-url" className="mb-1 block text-sm font-medium text-text">Source URL</label>
+          <div className="relative">
+            <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted">
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
+              </svg>
+            </span>
+            <input
+              id="edit-source-url"
+              type="url"
+              value={form.sourceUrl}
+              onChange={(e) => setField("sourceUrl", e.target.value)}
+              placeholder="https://www.example.com/recipe/…"
+              className="w-full rounded-lg border border-border bg-card py-2 pl-8 pr-3 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20"
+            />
+          </div>
+        </div>
+
         {/* Photo */}
         <div>
           <label className="mb-1 block text-sm font-medium text-text">Photo</label>
@@ -1157,12 +1441,28 @@ function EditMode({
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <Input id="edit-cuisine" label="Cuisine" value={form.cuisine} onChange={(e) => setField("cuisine", e.target.value)} />
-          <Input id="edit-dish-type" label="Dish Type" value={form.dishType} onChange={(e) => setField("dishType", e.target.value)} />
+          <Input
+            id="edit-cuisine" label="Cuisine" value={form.cuisine}
+            className={suggestedFields.has("cuisine") ? "text-brand-red" : undefined}
+            onChange={(e) => { setField("cuisine", e.target.value); clearSuggested("cuisine"); }}
+          />
+          <Input
+            id="edit-dish-type" label="Dish Type" value={form.dishType}
+            className={suggestedFields.has("dishType") ? "text-brand-red" : undefined}
+            onChange={(e) => { setField("dishType", e.target.value); clearSuggested("dishType"); }}
+          />
         </div>
         <div className="grid grid-cols-3 gap-4">
-          <Input id="edit-prep" label="Prep (min)" type="number" min="0" value={form.prepTimeMinutes} onChange={(e) => setField("prepTimeMinutes", e.target.value)} />
-          <Input id="edit-cook" label="Cook (min)" type="number" min="0" value={form.cookTimeMinutes} onChange={(e) => setField("cookTimeMinutes", e.target.value)} />
+          <Input
+            id="edit-prep" label="Prep (min)" type="number" min="0" value={form.prepTimeMinutes}
+            className={suggestedFields.has("prepTimeMinutes") ? "text-brand-red" : undefined}
+            onChange={(e) => { setField("prepTimeMinutes", e.target.value); clearSuggested("prepTimeMinutes"); }}
+          />
+          <Input
+            id="edit-cook" label="Cook (min)" type="number" min="0" value={form.cookTimeMinutes}
+            className={suggestedFields.has("cookTimeMinutes") ? "text-brand-red" : undefined}
+            onChange={(e) => { setField("cookTimeMinutes", e.target.value); clearSuggested("cookTimeMinutes"); }}
+          />
           <Input id="edit-servings" label="Servings" type="number" min="1" value={form.servings} onChange={(e) => setField("servings", e.target.value)} />
         </div>
         <div>
@@ -1170,14 +1470,45 @@ function EditMode({
           <select
             id="edit-complexity"
             value={form.complexity}
-            onChange={(e) => setField("complexity", e.target.value as EditState["complexity"])}
-            className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-text outline-none focus:border-highlight focus:ring-2 focus:ring-highlight/20"
+            onChange={(e) => { setField("complexity", e.target.value as EditState["complexity"]); clearSuggested("complexity"); }}
+            className={cn(
+              "w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none focus:border-highlight focus:ring-2 focus:ring-highlight/20",
+              suggestedFields.has("complexity") ? "text-brand-red" : "text-text",
+            )}
           >
             <option value="EASY">Easy</option>
             <option value="MEDIUM">Medium</option>
             <option value="HARD">Hard</option>
           </select>
         </div>
+
+        {/* Suggest Metadata */}
+        <button
+          type="button"
+          onClick={handleSuggestMetadata}
+          disabled={!form.title.trim() || suggesting}
+          className="flex items-center gap-1.5 self-start rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-highlight/50 hover:text-text disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {suggesting ? (
+            <>
+              <svg className="h-3.5 w-3.5 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Suggesting…
+            </>
+          ) : (
+            <>
+              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" />
+              </svg>
+              Suggest Metadata
+            </>
+          )}
+        </button>
+        {suggestError && (
+          <p className="text-xs text-destructive">{suggestError}</p>
+        )}
       </div>
 
       {/* Ingredients — DnD enabled */}
@@ -1189,22 +1520,54 @@ function EditMode({
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
+          {/* Multi-select action bar */}
+          {selectedIngIds.size > 0 && (
+            <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-highlight/30 bg-highlight/5 px-3 py-2 text-sm">
+              <span className="font-medium text-text">{selectedIngIds.size} selected</span>
+              {form.groups.length > 1 && (
+                <>
+                  <span className="text-border">·</span>
+                  <span className="text-muted">Move to:</span>
+                  <select
+                    defaultValue=""
+                    onChange={(e) => { if (e.target.value !== "") moveSelectedToGroup(parseInt(e.target.value)); }}
+                    className="rounded-lg border border-border bg-card px-2 py-0.5 text-sm text-text outline-none focus:border-highlight"
+                  >
+                    <option value="" disabled>Pick group…</option>
+                    {form.groups.map((g, gi) => (
+                      <option key={g._key} value={gi}>{g.name || `Group ${gi + 1}`}</option>
+                    ))}
+                  </select>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => { setSelectedIngIds(new Set()); lastSelectedIngRef.current = null; }}
+                className="ml-auto text-xs text-muted hover:text-text"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
           <SortableContext
-            items={form.groups.map((_, gi) => `group-${gi}`)}
+            items={form.groups.map((g) => g._key)}
             strategy={verticalListSortingStrategy}
           >
             <div className="space-y-4">
               {form.groups.map((group, gi) => (
                 <SortableGroup
-                  key={`group-${gi}`}
+                  key={group._key}
                   gi={gi}
                   group={group}
                   showHeader={form.groups.length > 1}
+                  selectedIngIds={selectedIngIds}
                   onNameChange={(v) => setGroupName(gi, v)}
                   onRemoveGroup={() => removeGroup(gi)}
                   onAddIngredient={() => addIngredient(gi)}
                   onSetIngredient={(ii, field, val) => setIngredient(gi, ii, field, val)}
                   onRemoveIngredient={(ii) => removeIngredient(gi, ii)}
+                  onToggleIngredientSelect={handleIngredientSelect}
                 />
               ))}
             </div>
@@ -1238,10 +1601,11 @@ function EditMode({
                 />
                 <textarea
                   value={step.body}
-                  onChange={(e) => setStep(si, "body", e.target.value)}
+                  onChange={(e) => { setStep(si, "body", e.target.value); growTextarea(e.target); }}
+                  ref={growTextarea}
                   placeholder={`Step ${si + 1}…`}
                   rows={2}
-                  className="w-full rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20 resize-none"
+                  className="w-full rounded-lg border border-border bg-card px-2 py-1.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20 resize-none overflow-hidden"
                 />
               </div>
               {form.steps.length > 1 && (
@@ -1278,6 +1642,58 @@ export function RecipeDetailView({ recipe: initialRecipe }: Props) {
   const [togglingFav, setTogglingFav] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // "Add to List" button state
+  type ListStatus = "checking" | "not-added" | "adding" | "added";
+  const [listStatus, setListStatus] = useState<ListStatus>("checking");
+
+  // On mount, check if this recipe already has items in the shopping list
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/shopping/items?recipeId=${recipe.id}`)
+      .then((r) => r.json())
+      .then((json) => {
+        if (cancelled) return;
+        const items = json.data?.items ?? [];
+        setListStatus(items.length > 0 ? "added" : "not-added");
+      })
+      .catch(() => { if (!cancelled) setListStatus("not-added"); });
+    return () => { cancelled = true; };
+  }, [recipe.id]);
+
+  async function addAllToList() {
+    if (listStatus !== "not-added") return;
+    setListStatus("adding");
+    const allIngredients = recipe.ingredientGroups.flatMap((g) =>
+      g.ingredients.map((i) => ({
+        ingredientId: i.id,
+        name: i.name,
+        quantity: i.quantity ? parseFloat(i.quantity) : null,
+        unit: i.unit ?? null,
+      }))
+    );
+    try {
+      await Promise.all(
+        allIngredients.map((ing) =>
+          fetch("/api/shopping/items", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              recipeId: recipe.id,
+              recipeName: recipe.title,
+              ingredientId: ing.ingredientId,
+              name: ing.name,
+              quantity: ing.quantity,
+              unit: ing.unit,
+            }),
+          })
+        )
+      );
+      setListStatus("added");
+    } catch {
+      setListStatus("not-added");
+    }
+  }
 
   // Shared servings scaler — persists across View / Price Calculator tab switches.
   // Resets automatically whenever the base servings change (i.e. after an edit + save).
@@ -1348,8 +1764,72 @@ export function RecipeDetailView({ recipe: initialRecipe }: Props) {
 
       {/* Header: title + actions */}
       <div className="flex items-start justify-between gap-4">
-        <h1 className="text-2xl font-bold text-text leading-tight">{recipe.title}</h1>
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-bold text-text leading-tight">{recipe.title}</h1>
+          {recipe.sourceUrl && (() => {
+            let display = recipe.sourceUrl;
+            try { display = new URL(recipe.sourceUrl).hostname.replace(/^www\./, ""); } catch { /* use raw url */ }
+            return (
+              <a
+                href={recipe.sourceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-xs text-muted hover:text-highlight transition-colors w-fit"
+              >
+                <svg className="h-3 w-3 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                </svg>
+                {display}
+              </a>
+            );
+          })()}
+        </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Add to List */}
+          {listStatus !== "checking" && (
+            <button
+              type="button"
+              onClick={addAllToList}
+              disabled={listStatus === "adding" || listStatus === "added"}
+              aria-label={listStatus === "added" ? "All ingredients added to shopping list" : "Add all ingredients to shopping list"}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors disabled:cursor-default",
+                listStatus === "added"
+                  ? "border-highlight/40 bg-highlight/10 text-highlight"
+                  : listStatus === "adding"
+                    ? "border-border bg-card text-muted"
+                    : "border-border bg-card text-text hover:bg-card-hover",
+              )}
+            >
+              {listStatus === "added" ? (
+                <>
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M5 13l4 4L19 7" />
+                  </svg>
+                  In List
+                </>
+              ) : listStatus === "adding" ? (
+                <>
+                  <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+                  </svg>
+                  Adding…
+                </>
+              ) : (
+                <>
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
+                    <line x1="3" y1="6" x2="21" y2="6" />
+                    <path d="M16 10a4 4 0 01-8 0" />
+                  </svg>
+                  Add to List
+                </>
+              )}
+            </button>
+          )}
+
           {/* Favorite */}
           <button
             type="button"

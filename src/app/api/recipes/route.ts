@@ -3,7 +3,7 @@ import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { recipeCreateSchema } from "@/lib/recipe-schemas";
-import { buildEmbeddingText, generateEmbedding, searchRecipesByEmbedding } from "@/lib/embeddings";
+import { buildEmbeddingText, generateEmbedding, embedRecipeInBackground, searchRecipesByEmbedding } from "@/lib/embeddings";
 import type { RecipeListItem, RecipeListResponse } from "@/types/recipe";
 
 // ---------------------------------------------------------------------------
@@ -80,9 +80,12 @@ export async function GET(request: Request) {
   const skip = (page - 1) * limit;
 
   // ── AI semantic search ────────────────────────────────────────────────────
+  // Only returns recipes above the similarity threshold. Falls through to
+  // standard text search when the query has no confident semantic matches
+  // (e.g. short ingredient keywords like "beef" that text search handles better).
   if (ai && q) {
     try {
-      const queryEmbedding = await generateEmbedding(q);
+      const queryEmbedding = await generateEmbedding(q, true);
       if (queryEmbedding) {
         const matches = await searchRecipesByEmbedding(auth.user.id, queryEmbedding, limit);
         if (matches.length > 0) {
@@ -91,7 +94,6 @@ export async function GET(request: Request) {
             where: { id: { in: ids }, userId: auth.user.id },
             select: recipeListSelect,
           });
-          // Re-sort to match similarity order
           const rowMap = new Map(rows.map((r) => [r.id, r]));
           const ordered = ids.map((id) => rowMap.get(id)).filter(Boolean) as typeof rows;
           const data: RecipeListResponse = {
@@ -102,6 +104,7 @@ export async function GET(request: Request) {
           };
           return apiSuccess(data);
         }
+        // No confident semantic matches — fall through to text search below
       }
     } catch (err) {
       console.error("[recipes] AI search failed, falling back to text search:", err);
@@ -111,11 +114,20 @@ export async function GET(request: Request) {
   // ── Standard text search ──────────────────────────────────────────────────
   const where = {
     userId: auth.user.id,
-    ...(q ? { title: { contains: q, mode: "insensitive" as const } } : {}),
-    ...(favorites ? { isFavorite: true } : {}),
-    ...(cuisine ? { cuisine: { contains: cuisine, mode: "insensitive" as const } } : {}),
-    ...(dishType ? { dishType: { contains: dishType, mode: "insensitive" as const } } : {}),
-    ...(complexity ? { complexity } : {}),
+    ...(q ? {
+      OR: [
+        { title:        { contains: q, mode: "insensitive" as const } },
+        { description:  { contains: q, mode: "insensitive" as const } },
+        { cuisine:      { contains: q, mode: "insensitive" as const } },
+        { dishType:     { contains: q, mode: "insensitive" as const } },
+        { flavorProfile:{ contains: q, mode: "insensitive" as const } },
+        { ingredientGroups: { some: { ingredients: { some: { name: { contains: q, mode: "insensitive" as const } } } } } },
+      ],
+    } : {}),
+    ...(favorites   ? { isFavorite: true } : {}),
+    ...(cuisine     ? { cuisine:    { contains: cuisine,   mode: "insensitive" as const } } : {}),
+    ...(dishType    ? { dishType:   { contains: dishType,  mode: "insensitive" as const } } : {}),
+    ...(complexity  ? { complexity } : {}),
   };
 
   const [recipes, total] = await prisma.$transaction([
@@ -212,24 +224,17 @@ export async function POST(request: Request) {
     },
   });
 
-  // Generate and store embedding in the background (non-blocking)
-  const embeddingText = buildEmbeddingText({
+  // Generate description (if empty) + embedding in the background (non-blocking)
+  embedRecipeInBackground({
+    id: recipe.id,
     title: recipe.title,
     description: recipe.description,
-    dishType: recipe.dishType,
     cuisine: recipe.cuisine,
+    dishType: recipe.dishType,
     flavorProfile: recipe.flavorProfile,
     ingredientGroups: recipe.ingredientGroups,
+    steps: recipe.steps,
   });
-  generateEmbedding(embeddingText).then((embedding) => {
-    if (!embedding) return;
-    const vectorString = `[${embedding.join(",")}]`;
-    return prisma.$executeRawUnsafe(
-      `UPDATE recipes SET embedding = $1::vector WHERE id = $2`,
-      vectorString,
-      recipe.id,
-    );
-  }).catch((err) => console.error("[recipes] embedding store failed:", err));
 
   return apiSuccess(recipe, 201);
 }

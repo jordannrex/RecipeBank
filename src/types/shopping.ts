@@ -17,6 +17,12 @@ export type ShoppingItemRow = {
   isManual: boolean;
   /** Denormalized recipe name for display (null for manually added items). */
   recipeName: string | null;
+  // Persisted price calculator data.
+  // For recipe-linked items this comes from the Ingredient record (shared).
+  // For manually added items it comes from the ShoppingItem record itself.
+  storePkgQty: number | null;
+  storePkgUnit: string | null;
+  price: number | null;
 };
 
 /**

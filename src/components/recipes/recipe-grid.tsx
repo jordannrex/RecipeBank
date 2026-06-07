@@ -23,9 +23,9 @@ export function RecipeGrid() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const debouncedQuery = useDebounce(query, 350);
-  const [aiSearch, setAiSearch] = useState(false);
+  const [aiSearch, setAiSearch] = useState(() => searchParams.get("ai") === "true");
   const [showFavorites, setShowFavorites] = useState(
     () => searchParams.get("favorites") === "true"
   );

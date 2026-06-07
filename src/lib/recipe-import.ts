@@ -11,7 +11,7 @@
  */
 
 import * as cheerio from "cheerio";
-import { getOpenAI } from "@/lib/openai";
+import { getGemini } from "@/lib/gemini";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -364,15 +364,18 @@ Page text:
 ${pageText}`;
 
   try {
-    const resp = await getOpenAI().chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0,
-      max_tokens: 2000,
+    const model = getGemini().getGenerativeModel({
+      model: "gemini-2.5-flash",
+      generationConfig: {
+        temperature: 0,
+        maxOutputTokens: 4000,
+        responseMimeType: "application/json",
+        // @ts-expect-error — thinkingConfig valid for gemini-2.5-flash, not yet in SDK types
+        thinkingConfig: { thinkingBudget: 0 },
+      },
     });
-
-    const content = resp.choices[0]?.message?.content ?? "";
-    const json = JSON.parse(content.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, ""));
+    const result = await model.generateContent(prompt);
+    const json = JSON.parse(result.response.text());
     if (json.error) return null;
     return json as Partial<ImportedRecipe>;
   } catch (err) {
@@ -414,14 +417,18 @@ Steps (first 10):
 ${stepText ?? "none"}`;
 
   try {
-    const resp = await getOpenAI().chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0,
-      max_tokens: 200,
+    const model = getGemini().getGenerativeModel({
+      model: "gemini-2.5-flash",
+      generationConfig: {
+        temperature: 0,
+        maxOutputTokens: 1024,
+        responseMimeType: "application/json",
+        // @ts-expect-error — thinkingConfig valid for gemini-2.5-flash, not yet in SDK types
+        thinkingConfig: { thinkingBudget: 0 },
+      },
     });
-    const content = resp.choices[0]?.message?.content ?? "";
-    const json = JSON.parse(content.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, ""));
+    const result = await model.generateContent(prompt);
+    const json = JSON.parse(result.response.text());
 
     return {
       ...recipe,
@@ -536,20 +543,30 @@ async function handlePinterest(html: string, url: string): Promise<ImportResult>
 // ---------------------------------------------------------------------------
 
 async function importFromHtml(html: string, url: string): Promise<ImportResult> {
-  // 1. JSON-LD
-  let partial = extractFromJsonLd(html, url);
+  // 1. JSON-LD — returns null if nothing useful was found
+  const jsonLd = extractFromJsonLd(html, url);
+  let partial: Partial<ImportedRecipe> = jsonLd ?? {};
 
-  // 2. HTML scraping (fills any gaps, or replaces if JSON-LD gave nothing)
-  const htmlExtracted = extractFromHtml(html, url);
-  if (!partial) {
-    partial = htmlExtracted;
-  } else {
-    // Merge: prefer JSON-LD but fill empty fields from HTML
-    partial.ingredientGroups = partial.ingredientGroups?.length
-      ? partial.ingredientGroups
-      : htmlExtracted.ingredientGroups ?? [];
-    partial.steps = partial.steps?.length ? partial.steps : htmlExtracted.steps ?? [];
-    partial.photoUrl = partial.photoUrl ?? htmlExtracted.photoUrl ?? null;
+  // 2. HTML scraping — skip entirely if JSON-LD already gave us a complete recipe
+  const jsonLdComplete =
+    !!jsonLd?.title &&
+    (jsonLd.ingredientGroups?.length ?? 0) > 0 &&
+    (jsonLd.ingredientGroups![0].ingredients.length ?? 0) > 0 &&
+    (jsonLd.steps?.length ?? 0) > 0;
+
+  if (!jsonLdComplete) {
+    const htmlExtracted = extractFromHtml(html, url);
+    if (!jsonLd) {
+      // JSON-LD found nothing — use HTML extraction as the base
+      partial = htmlExtracted;
+    } else {
+      // JSON-LD found something — merge, preferring JSON-LD but filling gaps from HTML
+      partial.ingredientGroups = partial.ingredientGroups?.length
+        ? partial.ingredientGroups
+        : htmlExtracted.ingredientGroups ?? [];
+      partial.steps = partial.steps?.length ? partial.steps : htmlExtracted.steps ?? [];
+      partial.photoUrl = partial.photoUrl ?? htmlExtracted.photoUrl ?? null;
+    }
   }
 
   // 3. AI extraction if we still don't have the core data
@@ -589,6 +606,24 @@ async function importFromHtml(html: string, url: string): Promise<ImportResult> 
 // Normalise partial data into a full ImportedRecipe
 // ---------------------------------------------------------------------------
 
+/** Strip leading bullet/dash markers and numbered-list prefixes from a step body. */
+function cleanStepText(text: string): string {
+  return text
+    // Collapse all newlines and carriage returns into a single space
+    .replace(/[\r\n]+/g, " ")
+    // Collapse any runs of whitespace created by the above
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    // Leading numbered list prefix: "1." "1)" "1:" "1-" or "Step 1:" etc.
+    .replace(/^(?:step\s+)?\d+[\.\)\:\-]\s*/i, "")
+    // Bullet/dash characters anywhere in the text (preceded by whitespace or start-of-string)
+    // Covers: •  ·  ‣  ◦  ◆  ▪  ▸  ►  ➤  ➔  ✓  ✔  ‐  –  —  −  *  + and plain -
+    .replace(/(?:^|\s)[•·‣◦◆▪▸►➤➔✓✔‐–—−\*\+](?=\s|$)/g, " ")
+    // Clean up any double spaces left behind
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 function toImportedRecipe(partial: Partial<ImportedRecipe>, sourceUrl: string): ImportedRecipe {
   return {
     title: partial.title ?? "Untitled Recipe",
@@ -606,7 +641,7 @@ function toImportedRecipe(partial: Partial<ImportedRecipe>, sourceUrl: string): 
       partial.ingredientGroups?.length
         ? partial.ingredientGroups
         : [{ name: "", ingredients: [] }],
-    steps: partial.steps ?? [],
+    steps: (partial.steps ?? []).map((s) => ({ ...s, body: cleanStepText(s.body) })),
   };
 }
 

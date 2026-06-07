@@ -5,8 +5,7 @@ import { prisma } from "@/lib/db";
 
 // ---------------------------------------------------------------------------
 // GET /api/shopping/items?recipeId=X
-// Returns all shopping items for a given recipe owned by the current user.
-// Response: { items: [{ id, ingredientId }] }
+// Returns shopping items for a specific recipe (used by recipe detail tab).
 // ---------------------------------------------------------------------------
 
 export async function GET(request: Request) {
@@ -35,12 +34,15 @@ export async function GET(request: Request) {
 
 // ---------------------------------------------------------------------------
 // POST /api/shopping/items
-// Adds an ingredient to the shopping list for a recipe.
-// Body: { recipeId, recipeName, ingredientId, name, quantity?, unit? }
-// Response: { id } — the new ShoppingItem id
+// Adds an item to the shopping list.
+//
+// Two modes:
+//   • Recipe item  — links to a recipe ingredient (deduplicates by ingredientId)
+//   • Manual item  — free-text entry, stored under the user's manual list
 // ---------------------------------------------------------------------------
 
-const addItemSchema = z.object({
+const recipeItemSchema = z.object({
+  isManual: z.literal(false).optional(),
   recipeId: z.string(),
   recipeName: z.string(),
   ingredientId: z.string(),
@@ -48,6 +50,15 @@ const addItemSchema = z.object({
   quantity: z.number().nullable().optional(),
   unit: z.string().nullable().optional(),
 });
+
+const manualItemSchema = z.object({
+  isManual: z.literal(true),
+  name: z.string().min(1),
+  quantity: z.number().nullable().optional(),
+  unit: z.string().nullable().optional(),
+});
+
+const addItemSchema = z.union([recipeItemSchema, manualItemSchema]);
 
 export async function POST(request: Request) {
   const auth = await withAuth();
@@ -65,9 +76,40 @@ export async function POST(request: Request) {
     return apiError(parsed.error.issues[0]?.message ?? "Invalid input", 400);
   }
 
-  const { recipeId, recipeName, ingredientId, name, quantity, unit } = parsed.data;
+  const data = parsed.data;
 
-  // Verify the recipe belongs to the current user
+  // ── Manual item ────────────────────────────────────────────────────────────
+  if (data.isManual) {
+    // Find or create the user's manual list (recipeId: null)
+    let list = await prisma.shoppingList.findFirst({
+      where: { userId: auth.user.id, recipeId: null },
+      select: { id: true },
+    });
+    if (!list) {
+      list = await prisma.shoppingList.create({
+        data: { userId: auth.user.id },
+        select: { id: true },
+      });
+    }
+
+    const item = await prisma.shoppingItem.create({
+      data: {
+        shoppingListId: list.id,
+        name: data.name,
+        quantity: data.quantity ?? null,
+        unit: data.unit ?? null,
+        isManual: true,
+      },
+      select: { id: true },
+    });
+
+    return apiSuccess({ id: item.id }, 201);
+  }
+
+  // ── Recipe-linked item ─────────────────────────────────────────────────────
+  const { recipeId, recipeName, ingredientId, name, quantity, unit } = data;
+
+  // Verify recipe ownership
   const recipe = await prisma.recipe.findUnique({
     where: { id: recipeId },
     select: { userId: true },
@@ -76,24 +118,19 @@ export async function POST(request: Request) {
     return apiError("Recipe not found", 404);
   }
 
-  // Find or create a ShoppingList for this user + recipe
+  // Find or create the ShoppingList for this user + recipe
   let list = await prisma.shoppingList.findFirst({
     where: { userId: auth.user.id, recipeId },
     select: { id: true },
   });
-
   if (!list) {
     list = await prisma.shoppingList.create({
-      data: {
-        userId: auth.user.id,
-        recipeId,
-        name: recipeName,
-      },
+      data: { userId: auth.user.id, recipeId, name: recipeName },
       select: { id: true },
     });
   }
 
-  // Avoid duplicate entries for the same ingredient
+  // Deduplicate by ingredientId
   const existing = await prisma.shoppingItem.findFirst({
     where: { shoppingListId: list.id, ingredientId },
     select: { id: true },
@@ -114,5 +151,5 @@ export async function POST(request: Request) {
     select: { id: true },
   });
 
-  return apiSuccess({ id: item.id });
+  return apiSuccess({ id: item.id }, 201);
 }

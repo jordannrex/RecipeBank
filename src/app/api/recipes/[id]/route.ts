@@ -4,7 +4,7 @@ import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { ingredientGroupSchema, stepSchema } from "@/lib/recipe-schemas";
 import { getOwnedRecipe } from "@/lib/recipe-helpers";
-import { buildEmbeddingText, generateEmbedding } from "@/lib/embeddings";
+import { embedRecipeInBackground } from "@/lib/embeddings";
 import type { Recipe } from "@prisma/client";
 
 const recipeUpdateSchema = z.object({
@@ -209,23 +209,17 @@ export async function PATCH(
     return tx.recipe.findUnique({ where: { id }, include: recipeInclude });
   });
 
-  // Regenerate embedding in the background
+  // Regenerate description (if empty) + embedding in the background
   if (updated) {
     const fullRecipe = await prisma.recipe.findUnique({
       where: { id },
-      include: { ingredientGroups: { include: { ingredients: true } } },
+      include: {
+        ingredientGroups: { include: { ingredients: true } },
+        steps: { orderBy: { sortOrder: "asc" } },
+      },
     });
     if (fullRecipe) {
-      const embeddingText = buildEmbeddingText(fullRecipe);
-      generateEmbedding(embeddingText).then((embedding) => {
-        if (!embedding) return;
-        const vectorString = `[${embedding.join(",")}]`;
-        return prisma.$executeRawUnsafe(
-          `UPDATE recipes SET embedding = $1::vector WHERE id = $2`,
-          vectorString,
-          id,
-        );
-      }).catch((err) => console.error("[recipes/[id]] embedding update failed:", err));
+      embedRecipeInBackground(fullRecipe);
     }
   }
 
