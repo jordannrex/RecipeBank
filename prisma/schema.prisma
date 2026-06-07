@@ -8,7 +8,6 @@ generator client {
 
 datasource db {
   provider   = "postgresql"
-  url        = env("DATABASE_URL")
   extensions = [vector]
 }
 
@@ -37,6 +36,7 @@ model User {
   cookLogs      CookLog[]
   mealPlans     MealPlan[]
   shoppingLists ShoppingList[]
+  menus         Menu[]
   sessions      Session[]
   passwordResetTokens PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
@@ -130,6 +130,7 @@ model Recipe {
   mealPlans         MealPlan[]
   shoppingLists     ShoppingList[]
   shoppingItems     ShoppingItem[]
+  menuItems         MenuItem[]
 
   @@index([userId])
   @@index([userId, isFavorite])
@@ -311,4 +312,44 @@ model ShoppingItem {
   @@index([ingredientId])
   @@index([recipeId])
   @@map("shopping_items")
+}
+
+// ---------------------------------------------------------------------------
+// Menus
+// ---------------------------------------------------------------------------
+
+model Menu {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  title       String
+  description String?   @db.Text
+  startDate   DateTime? @map("start_date") @db.Date
+  endDate     DateTime? @map("end_date")   @db.Date
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt      @map("updated_at")
+
+  user  User       @relation(fields: [userId],  references: [id], onDelete: Cascade)
+  items MenuItem[]
+
+  @@index([userId])
+  @@map("menus")
+}
+
+model MenuItem {
+  id        String    @id @default(cuid())
+  menuId    String    @map("menu_id")
+  recipeId  String    @map("recipe_id")
+  servings  Int
+  sortOrder Int       @default(0) @map("sort_order")
+  cookDate  DateTime? @map("cook_date") @db.Date
+  notes     String?   @db.Text
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+
+  menu   Menu   @relation(fields: [menuId],   references: [id], onDelete: Cascade)
+  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+
+  @@index([menuId])
+  @@index([recipeId])
+  @@map("menu_items")
 }

@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { calcIngredientCost, decimalToFraction } from "@/lib/units";
+import { QtyUnit } from "@/components/ui/fraction-display";
 import type { ShoppingItemRow, ShoppingGroup } from "@/types/shopping";
 
 // Debounce helper: returns a function that delays `fn` by `ms` per call key
@@ -94,11 +95,11 @@ function ItemRow({
       </div>
 
       {/* Qty + unit */}
-      {(item.quantity || item.unit) && (
-        <span className="flex-shrink-0 text-sm font-medium text-text tabular-nums">
-          {formatQty(item.quantity, item.unit)}
-        </span>
-      )}
+      <QtyUnit
+        quantity={item.quantity}
+        unit={item.unit}
+        className="flex-shrink-0 text-sm font-medium text-text tabular-nums"
+      />
 
       {/* Delete */}
       <button
@@ -214,9 +215,14 @@ function PriceCalculatorTab({
                   {item.name}
                 </p>
                 <p className="text-xs text-muted">
-                  {recipeLabel
-                    ? `Need: ${recipeLabel}${item.recipeName ? ` · ${item.recipeName}` : ""}`
-                    : item.recipeName ?? (item.isManual ? "Manually added" : "")}
+                  {recipeLabel ? (
+                    <>
+                      Need: <QtyUnit quantity={item.quantity} unit={item.unit} />
+                      {item.recipeName && <> · {item.recipeName}</>}
+                    </>
+                  ) : (
+                    item.recipeName ?? (item.isManual ? "Manually added" : "")
+                  )}
                 </p>
               </div>
 
@@ -585,6 +591,23 @@ export default function ShoppingListPage() {
     }
   }
 
+  async function handleClearChecked() {
+    const checkedIds = items.filter((i) => i.isChecked).map((i) => i.id);
+    if (checkedIds.length === 0) return;
+    // Optimistic update
+    setItems((prev) => prev.map((i) => (i.isChecked ? { ...i, isChecked: false } : i)));
+    try {
+      await Promise.all(
+        checkedIds.map((id) => fetch(`/api/shopping/items/${id}`, { method: "PATCH" })),
+      );
+    } catch {
+      // Roll back on failure
+      setItems((prev) =>
+        prev.map((i) => (checkedIds.includes(i.id) ? { ...i, isChecked: true } : i)),
+      );
+    }
+  }
+
   async function handleManualAdd(name: string, qty: string, unit: string) {
     const res = await fetch("/api/shopping/items", {
       method: "POST",
@@ -687,38 +710,55 @@ export default function ShoppingListPage() {
           )}
         </div>
 
-        {/* Delete all — hidden on price-calc tab */}
-        {tab !== "price-calc" && totalItems > 0 && (
-          confirmDeleteAll ? (
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted">Delete everything?</span>
+        {/* Right-side actions: Clear checked + Delete all */}
+        {tab !== "price-calc" && (checkedItems > 0 || totalItems > 0) && (
+          <div className="flex items-center gap-4">
+            {checkedItems > 0 && (
               <button
                 type="button"
-                onClick={handleDeleteAll}
-                className="rounded-lg bg-destructive px-2.5 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                onClick={handleClearChecked}
+                className="flex items-center gap-1.5 text-sm font-medium text-muted transition-colors hover:text-text"
               >
-                Yes, delete all
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+                </svg>
+                Clear checked
               </button>
-              <button
-                type="button"
-                onClick={() => setConfirmDeleteAll(false)}
-                className="text-xs text-muted hover:text-text transition-colors"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmDeleteAll(true)}
-              className="flex items-center gap-1.5 text-sm font-medium text-destructive transition-opacity hover:opacity-75"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                <path strokeLinecap="round" strokeLinejoin="round" d="m19 7-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16" />
-              </svg>
-              Delete all
-            </button>
-          )
+            )}
+
+            {totalItems > 0 && (
+              confirmDeleteAll ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted">Delete everything?</span>
+                  <button
+                    type="button"
+                    onClick={handleDeleteAll}
+                    className="rounded-lg bg-destructive px-2.5 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                  >
+                    Yes, delete all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDeleteAll(false)}
+                    className="text-xs text-muted hover:text-text transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDeleteAll(true)}
+                  className="flex items-center gap-1.5 text-sm font-medium text-destructive transition-opacity hover:opacity-75"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="m19 7-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16" />
+                  </svg>
+                  Delete all
+                </button>
+              )
+            )}
+          </div>
         )}
       </div>
 

@@ -28,9 +28,10 @@ function formatTime(minutes: number | null): string {
 type RecipeCardProps = {
   recipe: RecipeListItem;
   onFavoriteToggle?: (id: string, newValue: boolean) => void;
+  onPreview?: (id: string) => void;
 };
 
-export function RecipeCard({ recipe, onFavoriteToggle }: RecipeCardProps) {
+export function RecipeCard({ recipe, onFavoriteToggle, onPreview }: RecipeCardProps) {
   const [isFavorite, setIsFavorite] = useState(recipe.isFavorite);
   const [toggling, setToggling] = useState(false);
 
@@ -62,7 +63,7 @@ export function RecipeCard({ recipe, onFavoriteToggle }: RecipeCardProps) {
       href={`/recipes/${recipe.id}`}
       className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-highlight/60 rounded-xl"
     >
-      <div className="overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-highlight/40 hover:shadow-sm">
+      <div className="group overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-highlight/40 hover:shadow-sm">
         {/* Photo */}
         <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
           <div className="absolute inset-0">
@@ -121,6 +122,25 @@ export function RecipeCard({ recipe, onFavoriteToggle }: RecipeCardProps) {
               <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
             </svg>
           </button>
+
+          {/* Expand / preview button — desktop only, appears on card hover */}
+          {onPreview && (
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); onPreview(recipe.id); }}
+              aria-label="Quick preview"
+              className={cn(
+                "absolute left-2 top-2 hidden md:flex h-7 w-7 items-center justify-center rounded-full",
+                "bg-black/40 backdrop-blur-sm text-white transition-all hover:bg-black/60",
+                "opacity-0 group-hover:opacity-100",
+              )}
+            >
+              {/* Classic diagonal double-headed expand arrows */}
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* Info */}

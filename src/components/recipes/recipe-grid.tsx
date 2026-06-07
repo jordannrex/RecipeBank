@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { RecipeCard } from "@/components/recipes/recipe-card";
+import { RecipePreviewDrawer } from "@/components/recipes/recipe-preview-drawer";
 import { AddRecipeModal } from "@/components/recipes/add-recipe-modal";
 import { Button } from "@/components/ui/button";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -31,7 +32,8 @@ export function RecipeGrid() {
   );
   const [complexity, setComplexity] = useState<ActiveComplexity>(null);
 
-  const [addOpen, setAddOpen] = useState(false);
+  const [addOpen, setAddOpen]       = useState(false);
+  const [previewId, setPreviewId]   = useState<string | null>(null);
 
   const hasMore = recipes.length < total;
 
@@ -205,6 +207,7 @@ export function RecipeGrid() {
                 key={recipe.id}
                 recipe={recipe}
                 onFavoriteToggle={handleFavoriteToggle}
+                onPreview={setPreviewId}
               />
             ))}
           </div>
@@ -225,6 +228,13 @@ export function RecipeGrid() {
       )}
 
       <AddRecipeModal open={addOpen} onClose={() => setAddOpen(false)} />
+
+      {previewId && (
+        <RecipePreviewDrawer
+          recipeId={previewId}
+          onClose={() => setPreviewId(null)}
+        />
+      )}
     </div>
   );
 }
