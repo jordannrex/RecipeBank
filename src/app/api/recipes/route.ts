@@ -3,6 +3,7 @@ import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { recipeCreateSchema } from "@/lib/recipe-schemas";
+import { buildEmbeddingText, generateEmbedding, embedRecipeInBackground, searchRecipesByEmbedding } from "@/lib/embeddings";
 import type { RecipeListItem, RecipeListResponse } from "@/types/recipe";
 
 // ---------------------------------------------------------------------------
@@ -58,6 +59,7 @@ const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   q: z.string().optional(),
+  ai: z.coerce.boolean().optional(), // semantic search toggle
   favorites: z.coerce.boolean().optional(),
   cuisine: z.string().optional(),
   dishType: z.string().optional(),
@@ -74,16 +76,58 @@ export async function GET(request: Request) {
     return apiError(parsed.error.issues[0]?.message ?? "Invalid query", 400);
   }
 
-  const { page, limit, q, favorites, cuisine, dishType, complexity } = parsed.data;
+  const { page, limit, q, ai, favorites, cuisine, dishType, complexity } = parsed.data;
   const skip = (page - 1) * limit;
 
+  // ── AI semantic search ────────────────────────────────────────────────────
+  // Only returns recipes above the similarity threshold. Falls through to
+  // standard text search when the query has no confident semantic matches
+  // (e.g. short ingredient keywords like "beef" that text search handles better).
+  if (ai && q) {
+    try {
+      const queryEmbedding = await generateEmbedding(q, true);
+      if (queryEmbedding) {
+        const matches = await searchRecipesByEmbedding(auth.user.id, queryEmbedding, limit);
+        if (matches.length > 0) {
+          const ids = matches.map((m) => m.id);
+          const rows = await prisma.recipe.findMany({
+            where: { id: { in: ids }, userId: auth.user.id },
+            select: recipeListSelect,
+          });
+          const rowMap = new Map(rows.map((r) => [r.id, r]));
+          const ordered = ids.map((id) => rowMap.get(id)).filter(Boolean) as typeof rows;
+          const data: RecipeListResponse = {
+            recipes: ordered.map(toListItem),
+            total: ordered.length,
+            page: 1,
+            limit,
+          };
+          return apiSuccess(data);
+        }
+        // No confident semantic matches — fall through to text search below
+      }
+    } catch (err) {
+      console.error("[recipes] AI search failed, falling back to text search:", err);
+    }
+  }
+
+  // ── Standard text search ──────────────────────────────────────────────────
   const where = {
     userId: auth.user.id,
-    ...(q ? { title: { contains: q, mode: "insensitive" as const } } : {}),
-    ...(favorites ? { isFavorite: true } : {}),
-    ...(cuisine ? { cuisine: { contains: cuisine, mode: "insensitive" as const } } : {}),
-    ...(dishType ? { dishType: { contains: dishType, mode: "insensitive" as const } } : {}),
-    ...(complexity ? { complexity } : {}),
+    ...(q ? {
+      OR: [
+        { title:        { contains: q, mode: "insensitive" as const } },
+        { description:  { contains: q, mode: "insensitive" as const } },
+        { cuisine:      { contains: q, mode: "insensitive" as const } },
+        { dishType:     { contains: q, mode: "insensitive" as const } },
+        { flavorProfile:{ contains: q, mode: "insensitive" as const } },
+        { ingredientGroups: { some: { ingredients: { some: { name: { contains: q, mode: "insensitive" as const } } } } } },
+      ],
+    } : {}),
+    ...(favorites   ? { isFavorite: true } : {}),
+    ...(cuisine     ? { cuisine:    { contains: cuisine,   mode: "insensitive" as const } } : {}),
+    ...(dishType    ? { dishType:   { contains: dishType,  mode: "insensitive" as const } } : {}),
+    ...(complexity  ? { complexity } : {}),
   };
 
   const [recipes, total] = await prisma.$transaction([
@@ -128,7 +172,7 @@ export async function POST(request: Request) {
   }
 
   const {
-    title, description, photoUrl, servings, prepTimeMinutes, cookTimeMinutes,
+    title, description, photoUrl, sourceUrl, servings, prepTimeMinutes, cookTimeMinutes,
     complexity, dishType, cuisine, flavorProfile, ingredientGroups, steps,
   } = parsed.data;
 
@@ -138,6 +182,7 @@ export async function POST(request: Request) {
       title,
       description: description ?? null,
       photoUrl: photoUrl ?? null,
+      sourceUrl: sourceUrl ?? null,
       servings,
       currentServings: servings,
       prepTimeMinutes: prepTimeMinutes ?? null,
@@ -177,6 +222,18 @@ export async function POST(request: Request) {
       },
       steps: { orderBy: { sortOrder: "asc" } },
     },
+  });
+
+  // Generate description (if empty) + embedding in the background (non-blocking)
+  embedRecipeInBackground({
+    id: recipe.id,
+    title: recipe.title,
+    description: recipe.description,
+    cuisine: recipe.cuisine,
+    dishType: recipe.dishType,
+    flavorProfile: recipe.flavorProfile,
+    ingredientGroups: recipe.ingredientGroups,
+    steps: recipe.steps,
   });
 
   return apiSuccess(recipe, 201);

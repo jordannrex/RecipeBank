@@ -116,8 +116,8 @@ model Recipe {
   isFavorite    Boolean    @default(false) @map("is_favorite")
   cookCount     Int        @default(0) @map("cook_count")
   lastCookedAt  DateTime?  @map("last_cooked_at")
-  // OpenAI text-embedding-3-small produces 1536-dimensional vectors
-  embedding     Unsupported("vector(1536)")?
+  // Gemini text-embedding-004 produces 768-dimensional vectors
+  embedding     Unsupported("vector(768)")?
   createdAt     DateTime   @default(now()) @map("created_at")
   updatedAt     DateTime   @updatedAt @map("updated_at")
 
@@ -163,6 +163,10 @@ model Ingredient {
   preparation       String?
   isOptional        Boolean  @default(false) @map("is_optional")
   sortOrder         Int      @default(0) @map("sort_order")
+  // Price calculator — last-known store package size and price
+  storePkgQty       Decimal? @map("store_pkg_qty") @db.Decimal(10, 4)
+  storePkgUnit      String?  @map("store_pkg_unit")
+  price             Decimal? @map("price") @db.Decimal(10, 2)
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 

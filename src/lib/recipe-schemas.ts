@@ -25,6 +25,7 @@ export const recipeCreateSchema = z.object({
   title: z.string().min(1, "Title is required").max(500),
   description: z.string().nullable().optional(),
   photoUrl: z.string().nullable().optional(),
+  sourceUrl: z.string().url().nullable().optional(),
   servings: z.number().int().min(1).default(4),
   prepTimeMinutes: z.number().int().min(0).nullable().optional(),
   cookTimeMinutes: z.number().int().min(0).nullable().optional(),

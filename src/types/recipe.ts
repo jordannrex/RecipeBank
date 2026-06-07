@@ -72,6 +72,10 @@ export type SerializedIngredient = {
   preparation: string | null;
   isOptional: boolean;
   sortOrder: number;
+  // Persisted price calculator data (Decimal serialized as string, same as quantity)
+  storePkgQty: string | null;
+  storePkgUnit: string | null;
+  price: string | null;
   createdAt: string;
   updatedAt: string;
 };

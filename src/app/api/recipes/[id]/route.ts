@@ -4,6 +4,7 @@ import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { ingredientGroupSchema, stepSchema } from "@/lib/recipe-schemas";
 import { getOwnedRecipe } from "@/lib/recipe-helpers";
+import { embedRecipeInBackground } from "@/lib/embeddings";
 import type { Recipe } from "@prisma/client";
 
 const recipeUpdateSchema = z.object({
@@ -18,6 +19,7 @@ const recipeUpdateSchema = z.object({
   flavorProfile: z.string().max(500).nullable().optional(),
   isFavorite: z.boolean().optional(),
   photoUrl: z.string().nullable().optional(),
+  sourceUrl: z.string().url().nullable().optional(),
   // When provided, replaces all existing groups + their ingredients.
   ingredientGroups: z.array(ingredientGroupSchema).optional(),
   // When provided, replaces all existing steps.
@@ -206,6 +208,20 @@ export async function PATCH(
 
     return tx.recipe.findUnique({ where: { id }, include: recipeInclude });
   });
+
+  // Regenerate description (if empty) + embedding in the background
+  if (updated) {
+    const fullRecipe = await prisma.recipe.findUnique({
+      where: { id },
+      include: {
+        ingredientGroups: { include: { ingredients: true } },
+        steps: { orderBy: { sortOrder: "asc" } },
+      },
+    });
+    if (fullRecipe) {
+      embedRecipeInBackground(fullRecipe);
+    }
+  }
 
   return apiSuccess(updated);
 }
