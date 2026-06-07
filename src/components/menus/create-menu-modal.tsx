@@ -12,7 +12,6 @@ import type { PickerRecipe } from "@/types/calendar";
 type StagedItem = {
   recipe: PickerRecipe & { currentServings?: number };
   servings: number;
-  cookDate: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -32,8 +31,6 @@ export function CreateMenuModal({ onClose, onCreated }: Props) {
   // Step 1 state
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
 
   // Step 2 state
   const [stagedItems, setStagedItems] = useState<StagedItem[]>([]);
@@ -77,7 +74,7 @@ export function CreateMenuModal({ onClose, onCreated }: Props) {
     if (stagedItems.length >= 10) return;
     if (stagedItems.some((it) => it.recipe.id === recipe.id)) return;
     const servings = (recipe as PickerRecipe & { currentServings?: number }).currentServings ?? 4;
-    setStagedItems((prev) => [...prev, { recipe, servings, cookDate: "" }]);
+    setStagedItems((prev) => [...prev, { recipe, servings }]);
   }
 
   function updateStaged(idx: number, patch: Partial<StagedItem>) {
@@ -101,12 +98,9 @@ export function CreateMenuModal({ onClose, onCreated }: Props) {
         body: JSON.stringify({
           title: title.trim(),
           description: description.trim() || null,
-          startDate: startDate || null,
-          endDate: endDate || null,
           items: stagedItems.map((it) => ({
             recipeId: it.recipe.id,
             servings: it.servings,
-            ...(it.cookDate ? { cookDate: it.cookDate } : {}),
           })),
         }),
       });
@@ -137,7 +131,7 @@ export function CreateMenuModal({ onClose, onCreated }: Props) {
               Step {step} of 2
             </p>
             <h2 className="text-lg font-bold text-text">
-              {step === 1 ? "Name & Schedule" : "Add Recipes"}
+              {step === 1 ? "Name your menu" : "Add Recipes"}
             </h2>
           </div>
           <button type="button" onClick={onClose} aria-label="Close"
@@ -160,7 +154,8 @@ export function CreateMenuModal({ onClose, onCreated }: Props) {
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Week 1, Summer BBQ…"
+                onKeyDown={(e) => { if (e.key === "Enter" && title.trim()) setStep(2); }}
+                placeholder="e.g. Summer BBQ Collection, Quick Weeknights…"
                 className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20"
               />
             </div>
@@ -175,31 +170,6 @@ export function CreateMenuModal({ onClose, onCreated }: Props) {
                 rows={3}
                 className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20 resize-none"
               />
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <label className="block text-sm font-medium text-text mb-1.5">Start date <span className="text-muted font-normal">(optional)</span></label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => {
-                    setStartDate(e.target.value);
-                    if (!e.target.value) setEndDate("");
-                  }}
-                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-text outline-none focus:border-highlight focus:ring-2 focus:ring-highlight/20"
-                />
-              </div>
-              <div className="flex-1">
-                <label className="block text-sm font-medium text-text mb-1.5">End date <span className="text-muted font-normal">(optional)</span></label>
-                <input
-                  type="date"
-                  value={endDate}
-                  min={startDate || undefined}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  disabled={!startDate}
-                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-text outline-none focus:border-highlight focus:ring-2 focus:ring-highlight/20 disabled:opacity-50"
-                />
-              </div>
             </div>
           </div>
         ) : (
@@ -301,16 +271,6 @@ export function CreateMenuModal({ onClose, onCreated }: Props) {
                         className="w-14 rounded-lg border border-border bg-card px-2 py-1 text-xs text-text outline-none focus:border-highlight"
                         title="Servings"
                       />
-                      {startDate && (
-                        <input
-                          type="date"
-                          value={item.cookDate}
-                          min={startDate}
-                          max={endDate || undefined}
-                          onChange={(e) => updateStaged(idx, { cookDate: e.target.value })}
-                          className="rounded-lg border border-border bg-card px-2 py-1 text-xs text-text outline-none focus:border-highlight"
-                        />
-                      )}
                       <button
                         type="button"
                         onClick={() => removeStaged(idx)}

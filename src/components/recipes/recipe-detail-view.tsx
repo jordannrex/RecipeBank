@@ -425,7 +425,20 @@ function scaleQty(qty: string | null, scale: number): string | null {
 
 // ── Shopping List mode ──────────────────────────────────────────────────────
 
-function ShoppingListMode({ recipe }: { recipe: SerializedRecipeWithRelations }) {
+function ShoppingListMode({
+  recipe,
+  refreshKey,
+}: {
+  recipe: SerializedRecipeWithRelations;
+  refreshKey: number;
+}) {
+  const baseServings = recipe.servings;
+  const [servings, setServings] = useState(recipe.currentServings);
+  const scale = baseServings > 0 ? servings / baseServings : 1;
+
+  // needIt maps both ingredientId AND a normalized-name key → shopping item id,
+  // so an ingredient counts as "on the list" by either match.
+  const nameKey = (name: string) => `n:${name.trim().toLowerCase()}`;
   const [needIt, setNeedIt] = useState<Map<string, string>>(new Map());
   const [loadingState, setLoadingState] = useState<"loading" | "ready" | "error">("loading");
   const [toggling, setToggling] = useState<Set<string>>(new Set());
@@ -439,17 +452,23 @@ function ShoppingListMode({ recipe }: { recipe: SerializedRecipeWithRelations })
     }))
   );
 
+  // Re-fetch whenever the recipe changes or the parent signals a refresh
   useEffect(() => {
     let cancelled = false;
+    setLoadingState("loading");
     async function load() {
       try {
         const res = await fetch(`/api/shopping/items?recipeId=${recipe.id}`);
         if (!res.ok) throw new Error("Failed");
         const json = await res.json();
         if (cancelled) return;
+        // Key the lookup by BOTH ingredientId and normalized name → shopping item
+        // id. Name matching keeps the recipe tab in sync even when a past recipe
+        // edit nulled the ingredientId on existing shopping items.
         const map = new Map<string, string>();
-        for (const item of json.data.items as { id: string; ingredientId: string }[]) {
-          map.set(item.ingredientId, item.id);
+        for (const item of json.data.items as { id: string; ingredientId: string | null; name: string }[]) {
+          if (item.ingredientId) map.set(item.ingredientId, item.id);
+          map.set(nameKey(item.name), item.id);
         }
         setNeedIt(map);
         setLoadingState("ready");
@@ -459,16 +478,29 @@ function ShoppingListMode({ recipe }: { recipe: SerializedRecipeWithRelations })
     }
     load();
     return () => { cancelled = true; };
-  }, [recipe.id]);
+  }, [recipe.id, refreshKey]);
 
-  async function toggle(ingredientId: string, name: string, quantity: string | null, unit: string | null) {
+  function scaledQty(raw: string | null): number | null {
+    if (!raw) return null;
+    const n = parseFloat(raw);
+    if (isNaN(n)) return null;
+    return parseFloat((n * scale).toPrecision(4));
+  }
+
+  async function toggle(ingredientId: string, name: string, rawQty: string | null, unit: string | null) {
     if (toggling.has(ingredientId)) return;
     setToggling((prev) => new Set(prev).add(ingredientId));
-    const existingId = needIt.get(ingredientId);
+    // Match by id first, then by name (covers items orphaned by past edits).
+    const existingId = needIt.get(ingredientId) ?? needIt.get(nameKey(name));
     try {
       if (existingId) {
         const res = await fetch(`/api/shopping/items/${existingId}`, { method: "DELETE" });
-        if (res.ok) setNeedIt((prev) => { const m = new Map(prev); m.delete(ingredientId); return m; });
+        if (res.ok) setNeedIt((prev) => {
+          const m = new Map(prev);
+          m.delete(ingredientId);
+          m.delete(nameKey(name));
+          return m;
+        });
       } else {
         const res = await fetch("/api/shopping/items", {
           method: "POST",
@@ -478,13 +510,18 @@ function ShoppingListMode({ recipe }: { recipe: SerializedRecipeWithRelations })
             recipeName: recipe.title,
             ingredientId,
             name,
-            quantity: quantity ? parseFloat(quantity) : null,
+            quantity: scaledQty(rawQty),
             unit: unit ?? null,
           }),
         });
         if (res.ok) {
           const json = await res.json();
-          setNeedIt((prev) => new Map(prev).set(ingredientId, json.data.id));
+          setNeedIt((prev) => {
+            const m = new Map(prev);
+            m.set(ingredientId, json.data.id);
+            m.set(nameKey(name), json.data.id);
+            return m;
+          });
         }
       }
     } finally {
@@ -496,14 +533,59 @@ function ShoppingListMode({ recipe }: { recipe: SerializedRecipeWithRelations })
     return <p className="py-8 text-center text-sm text-muted">Loading…</p>;
   }
 
-  const needToBuy = allIngredients.filter((i) => needIt.has(i.id));
-  const haveIt    = allIngredients.filter((i) => !needIt.has(i.id));
+  const inList    = (i: { id: string; name: string }) => needIt.has(i.id) || needIt.has(nameKey(i.name));
+  const needToBuy = allIngredients.filter(inList);
+  const haveIt    = allIngredients.filter((i) => !inList(i));
+  const isScaled  = servings !== baseServings;
 
   return (
     <div className="space-y-5">
-      <p className="text-sm text-muted">
-        Mark ingredients you still need to buy. They&apos;ll be added to your Shopping List.
-      </p>
+      {/* Servings scaler */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-muted">
+          Mark ingredients you still need to buy.
+        </p>
+        <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-muted">
+          <svg className="h-3 w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+          <button
+            type="button"
+            onClick={() => setServings((v) => Math.max(1, v - 1))}
+            className="flex h-4 w-4 items-center justify-center rounded transition-colors hover:bg-card-hover hover:text-text"
+            aria-label="Decrease servings"
+          >
+            <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 10 10" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M2 5h6"/></svg>
+          </button>
+          <span className={cn("min-w-[1.25rem] text-center font-semibold", isScaled ? "text-highlight" : "text-text")}>
+            {servings}
+          </span>
+          <button
+            type="button"
+            onClick={() => setServings((v) => Math.min(100, v + 1))}
+            className="flex h-4 w-4 items-center justify-center rounded transition-colors hover:bg-card-hover hover:text-text"
+            aria-label="Increase servings"
+          >
+            <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 10 10" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"><path d="M5 2v6M2 5h6"/></svg>
+          </button>
+          <span>servings</span>
+          {isScaled && (
+            <button
+              type="button"
+              onClick={() => setServings(baseServings)}
+              className="ml-0.5 text-text/50 transition-colors hover:text-highlight"
+              aria-label={`Reset to ${baseServings} servings`}
+              title={`Reset to ${baseServings} servings`}
+            >
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                <path d="M3 3v5h5"/>
+              </svg>
+            </button>
+          )}
+        </span>
+      </div>
 
       {allIngredients.length === 0 && (
         <p className="text-sm text-muted">No ingredients added yet.</p>
@@ -531,7 +613,7 @@ function ShoppingListMode({ recipe }: { recipe: SerializedRecipeWithRelations })
                     </svg>
                   </span>
                   <span className="flex-1 text-sm font-semibold text-text">{item.name}</span>
-                  <QtyUnit quantity={item.quantity} unit={item.unit} className="text-sm text-text/60" />
+                  <QtyUnit quantity={scaledQty(item.quantity)} unit={item.unit} className="text-sm text-text/60" />
                 </button>
               </li>
             ))}
@@ -557,7 +639,7 @@ function ShoppingListMode({ recipe }: { recipe: SerializedRecipeWithRelations })
                   {/* Empty checkbox */}
                   <span className="h-5 w-5 shrink-0 rounded border-2 border-border/60" />
                   <span className="flex-1 text-sm text-text/70">{item.name}</span>
-                  <QtyUnit quantity={item.quantity} unit={item.unit} className="text-sm text-text/40" />
+                  <QtyUnit quantity={scaledQty(item.quantity) !== null ? String(scaledQty(item.quantity)) : null} unit={item.unit} className="text-sm text-text/40" />
                 </button>
               </li>
             ))}
@@ -1809,6 +1891,8 @@ export function RecipeDetailView({ recipe: initialRecipe }: Props) {
   // "Add to List" button state
   type ListStatus = "checking" | "not-added" | "adding" | "added";
   const [listStatus, setListStatus] = useState<ListStatus>("checking");
+  // Increment to force ShoppingListMode to re-fetch after addAllToList
+  const [listRefreshKey, setListRefreshKey] = useState(0);
 
   // On mount, check if this recipe already has items in the shopping list
   useEffect(() => {
@@ -1853,6 +1937,8 @@ export function RecipeDetailView({ recipe: initialRecipe }: Props) {
         )
       );
       setListStatus("added");
+      // Tell the Shopping List tab to re-fetch so it reflects the newly added items
+      setListRefreshKey((k) => k + 1);
     } catch {
       setListStatus("not-added");
     }
@@ -2100,7 +2186,7 @@ export function RecipeDetailView({ recipe: initialRecipe }: Props) {
             }}
           />
         )}
-        {mode === "list" && <ShoppingListMode recipe={recipe} />}
+        {mode === "list" && <ShoppingListMode recipe={recipe} refreshKey={listRefreshKey} />}
         {mode === "shopping" && (
           <PriceCalculatorMode
             recipe={recipe}
@@ -2116,6 +2202,9 @@ export function RecipeDetailView({ recipe: initialRecipe }: Props) {
         <div className="space-y-8 border-t border-border pt-6">
           <RecipeNotesSection recipeId={recipe.id} />
           <RecipeCookLogSection recipeId={recipe.id} />
+
+          {/* Recipe edit history */}
+          <RecipeEditsSection recipeId={recipe.id} />
 
           {/* Delete */}
           <div className="border-t border-border pt-6">
@@ -2153,8 +2242,6 @@ export function RecipeDetailView({ recipe: initialRecipe }: Props) {
         </div>
       )}
 
-      {/* Recipe edit history */}
-      <RecipeEditsSection recipeId={recipe.id} />
     </div>
     </>
   );

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { computeIngredientsCost, formatCost } from "@/lib/cost";
 
 function toDateStr(d: Date): string {
   const year  = d.getUTCFullYear();
@@ -51,17 +52,19 @@ export async function POST(
   // Verify recipe ownership
   const recipe = await prisma.recipe.findUnique({
     where: { id: recipeId },
-    select: { userId: true, currentServings: true, title: true, photoUrl: true, cuisine: true, dishType: true },
+    select: {
+      userId: true, currentServings: true, servings: true,
+      title: true, photoUrl: true, cuisine: true, dishType: true,
+      ingredientGroups: {
+        select: {
+          ingredients: {
+            select: { quantity: true, unit: true, storePkgQty: true, storePkgUnit: true, price: true },
+          },
+        },
+      },
+    },
   });
   if (!recipe || recipe.userId !== auth.user.id) return apiError("Recipe not found", 404);
-
-  // Validate cookDate within menu date range
-  if (cookDate && menu.startDate && cookDate < toDateStr(menu.startDate)) {
-    return apiError("Cook date must be within the menu date range", 400);
-  }
-  if (cookDate && menu.endDate && cookDate > toDateStr(menu.endDate)) {
-    return apiError("Cook date must be within the menu date range", 400);
-  }
 
   const nextOrder = menu.items.length;
   const item = await prisma.menuItem.create({
@@ -81,6 +84,12 @@ export async function POST(
     },
   });
 
+  const base = recipe.servings > 0 ? recipe.servings : 1;
+  const { cost } = computeIngredientsCost(
+    recipe.ingredientGroups.flatMap((g) => g.ingredients),
+    item.servings / base,
+  );
+
   return apiSuccess({
     id: item.id,
     sortOrder: item.sortOrder,
@@ -94,7 +103,7 @@ export async function POST(
       currentServings: item.recipe.currentServings,
       cuisine: item.recipe.cuisine,
       dishType: item.recipe.dishType,
-      estimatedCost: null,
+      estimatedCost: cost !== null ? formatCost(cost) : null,
     },
   }, 201);
 }

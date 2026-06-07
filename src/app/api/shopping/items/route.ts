@@ -20,14 +20,14 @@ export async function GET(request: Request) {
     where: { userId: auth.user.id, recipeId },
     select: {
       items: {
-        select: { id: true, ingredientId: true },
+        // Include the name so the recipe page can match by name as well as id.
+        // ingredientId is unstable across recipe edits; name is stable.
+        select: { id: true, ingredientId: true, name: true },
       },
     },
   });
 
-  const items = lists
-    .flatMap((l) => l.items)
-    .filter((i) => i.ingredientId !== null) as { id: string; ingredientId: string }[];
+  const items = lists.flatMap((l) => l.items);
 
   return apiSuccess({ items });
 }
@@ -118,21 +118,21 @@ export async function POST(request: Request) {
     return apiError("Recipe not found", 404);
   }
 
-  // Find or create the ShoppingList for this user + recipe
-  let list = await prisma.shoppingList.findFirst({
-    where: { userId: auth.user.id, recipeId },
+  // Find or create the ShoppingList for this user + recipe — atomically.
+  // upsert on the @@unique([userId, recipeId]) constraint makes concurrent adds
+  // (addAllToList / drawer fire N POSTs in parallel) converge on ONE list
+  // instead of racing to create duplicates.
+  const list = await prisma.shoppingList.upsert({
+    where: { userId_recipeId: { userId: auth.user.id, recipeId } },
+    update: { name: recipeName },   // keep the list label current if the recipe was renamed
+    create: { userId: auth.user.id, recipeId, name: recipeName },
     select: { id: true },
   });
-  if (!list) {
-    list = await prisma.shoppingList.create({
-      data: { userId: auth.user.id, recipeId, name: recipeName },
-      select: { id: true },
-    });
-  }
 
-  // Deduplicate by ingredientId
+  // Deduplicate by ingredientId OR name (name covers items whose ingredientId
+  // was nulled by a prior recipe edit, so we don't add a second copy).
   const existing = await prisma.shoppingItem.findFirst({
-    where: { shoppingListId: list.id, ingredientId },
+    where: { shoppingListId: list.id, OR: [{ ingredientId }, { name }] },
     select: { id: true },
   });
   if (existing) {

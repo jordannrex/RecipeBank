@@ -116,6 +116,7 @@ export function RecipeCookLogSection({ recipeId }: Props) {
             value={cookedAt}
             onChange={(e) => setCookedAt(e.target.value)}
             max={today()}
+            className="dark:[color-scheme:dark]"
           />
           <div>
             <label

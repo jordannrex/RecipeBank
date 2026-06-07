@@ -137,6 +137,25 @@ export async function PATCH(
 
     // Replace ingredient groups (and their ingredients via cascade)
     if (newGroups !== undefined) {
+      // Capture the price-calculator fields off the existing ingredients before
+      // we delete them. These are set via /api/ingredients/[id]/price and are
+      // NOT part of the edit payload, so without this they'd be silently wiped.
+      // We re-apply them below to new ingredients matching by normalized name.
+      const oldIngredients = await tx.ingredient.findMany({
+        where: { ingredientGroup: { recipeId: id } },
+        select: { name: true, storePkgQty: true, storePkgUnit: true, price: true },
+      });
+      const priceByName = new Map(
+        oldIngredients
+          .filter((i) => i.storePkgQty !== null || i.storePkgUnit !== null || i.price !== null)
+          .map((i) => [
+            i.name.trim().toLowerCase(),
+            { storePkgQty: i.storePkgQty, storePkgUnit: i.storePkgUnit, price: i.price },
+          ]),
+      );
+
+      // Replacing ingredients deletes the old Ingredient rows, which nulls the
+      // ingredientId on any ShoppingItem that referenced them (onDelete: SetNull).
       await tx.ingredientGroup.deleteMany({ where: { recipeId: id } });
       for (const [gi, group] of newGroups.entries()) {
         await tx.ingredientGroup.create({
@@ -156,6 +175,36 @@ export async function PATCH(
             },
           },
         });
+      }
+
+      // Re-link this recipe's shopping items to the NEW ingredient ids by name,
+      // so the shopping list survives the edit (no data loss) and the recipe's
+      // shopping tab stays in sync. Items whose name no longer matches an
+      // ingredient keep ingredientId = null (still shown on the shopping page).
+      const newIngredients = await tx.ingredient.findMany({
+        where: { ingredientGroup: { recipeId: id } },
+        select: { id: true, name: true },
+      });
+      const byName = new Map(newIngredients.map((i) => [i.name.trim().toLowerCase(), i.id]));
+
+      // Re-apply captured price-calculator fields to the new ingredient rows
+      // whose normalized name is unchanged, preserving saved store-package/price
+      // data across the edit.
+      for (const ing of newIngredients) {
+        const savedPrice = priceByName.get(ing.name.trim().toLowerCase());
+        if (savedPrice) {
+          await tx.ingredient.update({ where: { id: ing.id }, data: savedPrice });
+        }
+      }
+      const shoppingItems = await tx.shoppingItem.findMany({
+        where: { shoppingList: { recipeId: id } },
+        select: { id: true, name: true, ingredientId: true },
+      });
+      for (const si of shoppingItems) {
+        const newId = byName.get(si.name.trim().toLowerCase()) ?? null;
+        if (newId !== si.ingredientId) {
+          await tx.shoppingItem.update({ where: { id: si.id }, data: { ingredientId: newId } });
+        }
       }
     }
 

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { computeIngredientsCost, formatCost } from "@/lib/cost";
 
 function toDateStr(d: Date): string {
   const year  = d.getUTCFullYear();
@@ -32,7 +33,7 @@ export async function PATCH(
 
   const menu = await prisma.menu.findUnique({
     where: { id: menuId },
-    select: { userId: true, startDate: true, endDate: true },
+    select: { userId: true },
   });
   if (!menu) return apiError("Menu not found", 404);
   if (menu.userId !== auth.user.id) return apiError("Forbidden", 403);
@@ -51,16 +52,6 @@ export async function PATCH(
 
   const { servings, cookDate, notes, sortOrder } = parsed.data;
 
-  // Validate cookDate range
-  if (cookDate) {
-    if (menu.startDate && cookDate < toDateStr(menu.startDate)) {
-      return apiError("Cook date must be within the menu date range", 400);
-    }
-    if (menu.endDate && cookDate > toDateStr(menu.endDate)) {
-      return apiError("Cook date must be within the menu date range", 400);
-    }
-  }
-
   const updated = await prisma.menuItem.update({
     where: { id: itemId },
     data: {
@@ -73,10 +64,24 @@ export async function PATCH(
       recipe: {
         select: {
           id: true, title: true, photoUrl: true, currentServings: true, cuisine: true, dishType: true,
+          servings: true,
+          ingredientGroups: {
+            select: {
+              ingredients: {
+                select: { quantity: true, unit: true, storePkgQty: true, storePkgUnit: true, price: true },
+              },
+            },
+          },
         },
       },
     },
   });
+
+  const base = updated.recipe.servings > 0 ? updated.recipe.servings : 1;
+  const { cost } = computeIngredientsCost(
+    updated.recipe.ingredientGroups.flatMap((g) => g.ingredients),
+    updated.servings / base,
+  );
 
   return apiSuccess({
     id: updated.id,
@@ -91,7 +96,7 @@ export async function PATCH(
       currentServings: updated.recipe.currentServings,
       cuisine: updated.recipe.cuisine,
       dishType: updated.recipe.dishType,
-      estimatedCost: null,
+      estimatedCost: cost !== null ? formatCost(cost) : null,
     },
   });
 }
