@@ -42,3 +42,9 @@ next-env.d.ts
 # prisma
 prisma/*.db
 prisma/*.db-journal
+
+# claude code local config & worktrees
+.claude/
+
+# R
+.Rhistory

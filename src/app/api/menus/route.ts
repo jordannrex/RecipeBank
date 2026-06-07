@@ -2,7 +2,8 @@ import { z } from "zod";
 import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import type { MenuDetail, MenuSummary } from "@/types/menu";
+import { computeMenuCost, formatCost, type CostIngredient } from "@/lib/cost";
+import type { MenuDetail, MenuSummary, MenuUsageRecord } from "@/types/menu";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -15,33 +16,35 @@ function toDateStr(d: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function computeCost(/* no price data available in this schema */) {
-  return { totalCost: null, isPartialCost: false };
+function localToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function toMenuSummary(menu: {
-  id: string;
-  title: string;
-  description: string | null;
-  startDate: Date | null;
-  endDate: Date | null;
-  updatedAt: Date;
-  items: Array<{ servings: number; recipe: { photoUrl: string | null } }>;
-}): MenuSummary {
-  const { totalCost, isPartialCost } = computeCost();
+function toUsageRecord(u: {
+  id: string; startDate: Date; endDate: Date | null;
+  type: string; notes: string | null; createdAt: Date;
+}): MenuUsageRecord {
   return {
-    id: menu.id,
-    title: menu.title,
-    description: menu.description,
-    startDate: menu.startDate ? toDateStr(menu.startDate) : null,
-    endDate: menu.endDate ? toDateStr(menu.endDate) : null,
-    totalServings: menu.items.reduce((sum, it) => sum + it.servings, 0),
-    totalCost,
-    isPartialCost,
-    itemCount: menu.items.length,
-    recipePhotoUrls: menu.items.map((it) => it.recipe.photoUrl),
-    updatedAt: menu.updatedAt.toISOString(),
+    id: u.id,
+    startDate: toDateStr(u.startDate),
+    endDate: u.endDate ? toDateStr(u.endDate) : null,
+    type: u.type as "planned" | "logged",
+    notes: u.notes,
+    createdAt: u.createdAt.toISOString(),
   };
+}
+
+function computeUsageFields(usages: MenuUsageRecord[]) {
+  const today = localToday();
+  const currentUsage = usages.find(
+    (u) => u.startDate <= today && (u.endDate === null || u.endDate >= today),
+  ) ?? null;
+  const nextPlannedUsage = usages
+    .filter((u) => u.type === "planned" && u.startDate > today)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate))[0] ?? null;
+  const usageCount = usages.filter((u) => u.type === "logged").length;
+  return { currentUsage, nextPlannedUsage, usageCount };
 }
 
 const menuInclude = {
@@ -49,46 +52,94 @@ const menuInclude = {
     include: {
       recipe: {
         select: {
-          id: true,
-          title: true,
-          photoUrl: true,
-          currentServings: true,
-          cuisine: true,
-          dishType: true,
+          id: true, title: true, photoUrl: true,
+          currentServings: true, cuisine: true, dishType: true,
+          servings: true,
+          ingredientGroups: {
+            select: {
+              ingredients: {
+                select: {
+                  quantity: true, unit: true,
+                  storePkgQty: true, storePkgUnit: true, price: true,
+                },
+              },
+            },
+          },
         },
       },
     },
     orderBy: { sortOrder: "asc" as const },
   },
+  usages: {
+    orderBy: { startDate: "asc" as const },
+  },
 };
 
-function toMenuDetail(menu: {
+type MenuWithRelations = {
   id: string;
   title: string;
   description: string | null;
-  startDate: Date | null;
-  endDate: Date | null;
   updatedAt: Date;
   items: Array<{
-    id: string;
-    sortOrder: number;
-    servings: number;
-    cookDate: Date | null;
-    notes: string | null;
+    id: string; sortOrder: number; servings: number;
+    cookDate: Date | null; notes: string | null;
     recipe: {
-      id: string;
-      title: string;
-      photoUrl: string | null;
-      currentServings: number;
-      cuisine: string | null;
-      dishType: string | null;
+      id: string; title: string; photoUrl: string | null;
+      currentServings: number; cuisine: string | null; dishType: string | null;
+      servings: number;
+      ingredientGroups: Array<{ ingredients: CostIngredient[] }>;
     };
   }>;
-}): MenuDetail {
+  usages: Array<{
+    id: string; startDate: Date; endDate: Date | null;
+    type: string; notes: string | null; createdAt: Date;
+  }>;
+};
+
+/** Per-item costs (aligned to menu.items order) plus the menu total + partial flag. */
+function menuCostFields(menu: MenuWithRelations) {
+  const { itemCosts, totalCost, isPartial } = computeMenuCost(
+    menu.items.map((it) => ({
+      servings: it.servings,
+      recipe: {
+        servings: it.recipe.servings,
+        ingredientGroups: it.recipe.ingredientGroups,
+      },
+    })),
+  );
+  return {
+    itemCosts,
+    totalCost: totalCost !== null ? formatCost(totalCost) : null,
+    isPartialCost: isPartial,
+  };
+}
+
+function toMenuSummary(menu: MenuWithRelations): MenuSummary {
+  const { totalCost, isPartialCost } = menuCostFields(menu);
+  const usageRecords = menu.usages.map(toUsageRecord);
+  const { currentUsage, nextPlannedUsage, usageCount } = computeUsageFields(usageRecords);
+  return {
+    id: menu.id,
+    title: menu.title,
+    description: menu.description,
+    totalServings: menu.items.reduce((sum, it) => sum + it.servings, 0),
+    totalCost,
+    isPartialCost,
+    itemCount: menu.items.length,
+    recipePhotoUrls: menu.items.map((it) => it.recipe.photoUrl),
+    usageCount,
+    currentUsage,
+    nextPlannedUsage,
+    updatedAt: menu.updatedAt.toISOString(),
+  };
+}
+
+function toMenuDetail(menu: MenuWithRelations): MenuDetail {
   const summary = toMenuSummary(menu);
+  const { itemCosts } = menuCostFields(menu);
   return {
     ...summary,
-    items: menu.items.map((item) => ({
+    items: menu.items.map((item, i) => ({
       id: item.id,
       sortOrder: item.sortOrder,
       servings: item.servings,
@@ -101,9 +152,12 @@ function toMenuDetail(menu: {
         currentServings: item.recipe.currentServings,
         cuisine: item.recipe.cuisine,
         dishType: item.recipe.dishType,
-        estimatedCost: null,
+        estimatedCost: itemCosts[i] !== null ? formatCost(itemCosts[i]!) : null,
       },
     })),
+    allUsages: menu.usages.map(toUsageRecord).sort(
+      (a, b) => b.startDate.localeCompare(a.startDate),
+    ),
   };
 }
 
@@ -114,8 +168,6 @@ function toMenuDetail(menu: {
 const createMenuSchema = z.object({
   title: z.string().min(1, "Title is required").max(200),
   description: z.string().nullable().optional(),
-  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   items: z.array(z.object({
     recipeId: z.string().min(1),
     servings: z.number().int().min(1).optional(),
@@ -137,7 +189,7 @@ export async function GET() {
     orderBy: { updatedAt: "desc" },
   });
 
-  const summaries: MenuSummary[] = menus.map(toMenuSummary);
+  const summaries: MenuSummary[] = menus.map((m) => toMenuSummary(m as MenuWithRelations));
   return apiSuccess(summaries);
 }
 
@@ -155,25 +207,15 @@ export async function POST(request: Request) {
   const parsed = createMenuSchema.safeParse(body);
   if (!parsed.success) return apiError(parsed.error.issues[0]?.message ?? "Invalid input", 400);
 
-  const { title, description, startDate, endDate, items } = parsed.data;
+  const { title, description, items } = parsed.data;
 
-  // Validate date range
-  if (startDate && endDate && endDate < startDate) {
-    return apiError("End date must be on or after start date", 400);
-  }
+  if (items && items.length > 10) return apiError("A menu can have at most 10 recipes", 400);
 
-  // Validate item count
-  if (items && items.length > 10) {
-    return apiError("A menu can have at most 10 recipes", 400);
-  }
-
-  // Verify recipe ownership for all items
   const recipeIds = (items ?? []).map((it) => it.recipeId);
   const recipes = await prisma.recipe.findMany({
     where: { id: { in: recipeIds }, userId: auth.user.id },
     select: { id: true, currentServings: true },
   });
-
   const recipeMap = new Map(recipes.map((r) => [r.id, r]));
   for (const recipeId of recipeIds) {
     if (!recipeMap.has(recipeId)) return apiError(`Recipe ${recipeId} not found`, 404);
@@ -184,8 +226,6 @@ export async function POST(request: Request) {
       userId: auth.user.id,
       title,
       description: description ?? null,
-      startDate: startDate ? new Date(startDate) : null,
-      endDate: endDate ? new Date(endDate) : null,
       items: items && items.length > 0 ? {
         create: items.map((item, idx) => ({
           recipeId: item.recipeId,
@@ -198,5 +238,5 @@ export async function POST(request: Request) {
     include: menuInclude,
   });
 
-  return apiSuccess(toMenuDetail(menu), 201);
+  return apiSuccess(toMenuDetail(menu as MenuWithRelations), 201);
 }

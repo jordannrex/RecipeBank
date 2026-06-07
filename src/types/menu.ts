@@ -1,14 +1,24 @@
+export type MenuUsageRecord = {
+  id: string;
+  startDate: string;        // YYYY-MM-DD
+  endDate: string | null;   // YYYY-MM-DD
+  type: "planned" | "logged";
+  notes: string | null;
+  createdAt: string;
+};
+
 export type MenuSummary = {
   id: string;
   title: string;
   description: string | null;
-  startDate: string | null;   // YYYY-MM-DD
-  endDate: string | null;     // YYYY-MM-DD
   totalServings: number;
   totalCost: string | null;   // formatted "$X.XX" or null
   isPartialCost: boolean;
   itemCount: number;
-  recipePhotoUrls: (string | null)[];  // one per item, in sortOrder
+  recipePhotoUrls: (string | null)[];   // one per item, in sortOrder
+  usageCount: number;                    // total logged usages
+  currentUsage: MenuUsageRecord | null;  // active right now (started, not ended)
+  nextPlannedUsage: MenuUsageRecord | null; // next future planned usage
   updatedAt: string;
 };
 
@@ -29,7 +39,10 @@ export type MenuRecipeItem = {
   };
 };
 
-export type MenuDetail = MenuSummary & { items: MenuRecipeItem[] };
+export type MenuDetail = MenuSummary & {
+  items: MenuRecipeItem[];
+  allUsages: MenuUsageRecord[];
+};
 
 export type MenuBand = {
   menuId: string;

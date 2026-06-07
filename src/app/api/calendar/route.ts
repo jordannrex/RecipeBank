@@ -67,13 +67,14 @@ export async function GET(request: Request) {
       },
       orderBy: { cookDate: "asc" },
     }),
-    prisma.menu.findMany({
+    // MenuUsage bands: usages whose date range overlaps this month
+    prisma.menuUsage.findMany({
       where: {
         userId: auth.user.id,
-        startDate: { not: null, lte: new Date(Date.UTC(year, month, 0)) },
+        startDate: { lte: new Date(Date.UTC(year, month, 0)) },
         endDate: { not: null, gte: startDate },
       },
-      select: { id: true, title: true, startDate: true, endDate: true },
+      select: { id: true, menuId: true, startDate: true, endDate: true, menu: { select: { title: true } } },
     }),
   ]);
 
@@ -112,9 +113,9 @@ export async function GET(request: Request) {
   ].sort((a, b) => a.date.localeCompare(b.date));
 
   const menuBands: MenuBand[] = menuBandsRaw.map((b) => ({
-    menuId:    b.id,
-    title:     b.title,
-    startDate: toDateStr(b.startDate!),
+    menuId:    b.menuId,
+    title:     b.menu.title,
+    startDate: toDateStr(b.startDate),
     endDate:   toDateStr(b.endDate!),
   }));
 

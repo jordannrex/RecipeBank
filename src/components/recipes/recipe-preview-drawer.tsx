@@ -455,6 +455,12 @@ export function RecipePreviewDrawer({
   return (
     <>
       {/* ── Backdrop ─────────────────────────────────────────────── */}
+      {/* Frosted-glass blur spans the FULL screen and sits under the opaque
+          panel. The blur's only edges are the screen edges (off-screen), so it
+          never forms an artifact at the panel boundary. Do NOT clip this to the
+          panel's left edge — a clip there can leave a 1px un-blurred sliver when
+          the backdrop's right edge and the panel's left edge round to different
+          device pixels (that sliver was the original "unblurred line"). */}
       <div
         className={cn(
           "fixed inset-0 z-40 bg-background/50 backdrop-blur-[2px] transition-opacity duration-280",
@@ -474,15 +480,19 @@ export function RecipePreviewDrawer({
           // Mobile: bottom sheet
           "inset-x-0 bottom-0 max-h-[88vh] rounded-t-2xl border-t border-border",
           "transition-transform duration-280 ease-out",
-          // Mobile animation: slide up
-          !visible && "translate-y-full",
-          visible && "translate-y-0",
           // Desktop: right panel — cancel the mobile max-height and stretch full viewport
           "md:inset-x-auto md:right-0 md:top-0 md:bottom-0 md:h-screen md:max-h-none md:w-[400px]",
-          "md:rounded-none md:border-t-0 md:border-l md:border-border",
-          // Desktop animation: slide in from right
-          !visible && "md:translate-y-0 md:translate-x-full",
-          visible && "md:translate-x-0",
+          "md:rounded-none md:border-none",
+          // Hidden (pre-enter + during exit): push off-screen.
+          // Mobile slides down, desktop slides in from the right.
+          !visible && "translate-y-full md:translate-y-0 md:translate-x-full",
+          // When VISIBLE we deliberately apply NO translate utility. The CSS
+          // `translate` property then rests at its initial `none`, so the panel
+          // is not promoted to a GPU compositing layer. (A composited layer was
+          // landing on a fractional device pixel; its anti-aliased left edge
+          // blended bg-card with the dimmed backdrop — the 1px vertical seam.)
+          // The slide still animates: `transition-transform` covers `translate`,
+          // and translate:100% → none interpolates exactly like a slide to 0.
         )}
       >
         {/* Mobile drag handle */}

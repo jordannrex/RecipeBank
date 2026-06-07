@@ -18,7 +18,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
-import type { MenuDetail, MenuRecipeItem, MenuSummary } from "@/types/menu";
+import { formatCost, parseCost } from "@/lib/cost";
+import type { MenuDetail, MenuRecipeItem, MenuSummary, MenuUsageRecord } from "@/types/menu";
 import type { PickerRecipe } from "@/types/calendar";
 
 // ---------------------------------------------------------------------------
@@ -39,6 +40,21 @@ function formatDateRange(startDate: string | null, endDate: string | null): stri
   const [ey, em, ed] = endDate.split("-").map(Number);
   const endLabel = new Date(ey, em - 1, ed).toLocaleDateString("en-US", fmtOpts);
   return `${startLabel} – ${endLabel}`;
+}
+
+/** Derive currentUsage from a list of usages (same logic as the API). */
+function deriveCurrentUsage(usages: MenuUsageRecord[], today: string): MenuUsageRecord | null {
+  return usages.find(
+    (u) => u.startDate <= today && (u.endDate === null || u.endDate >= today),
+  ) ?? null;
+}
+
+/** Derive next planned usage from a list of usages (type=planned, startDate > today, earliest). */
+function deriveNextPlanned(usages: MenuUsageRecord[], today: string): MenuUsageRecord | null {
+  const candidates = usages
+    .filter((u) => u.type === "planned" && u.startDate > today)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
+  return candidates[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -196,8 +212,6 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
   // Edit state
   const [editTitle, setEditTitle] = useState("");
   const [editDescription, setEditDescription] = useState("");
-  const [editStartDate, setEditStartDate] = useState("");
-  const [editEndDate, setEditEndDate] = useState("");
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -206,8 +220,20 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
   const [showRecipePicker, setShowRecipePicker] = useState(false);
   const [savingItemId, setSavingItemId] = useState<string | null>(null);
 
+  // Usage state
+  const [allUsages, setAllUsages] = useState<MenuUsageRecord[]>([]);
+  const [logPanelOpen, setLogPanelOpen] = useState<"log" | "plan" | null>(null);
+  const [logForm, setLogForm] = useState({ startDate: "", endDate: "", notes: "" });
+  const [savingUsage, setSavingUsage] = useState(false);
+
   const titleRef = useRef<HTMLInputElement>(null);
   const sensors = useSensors(useSensor(PointerSensor));
+
+  const today = localToday();
+
+  // Derived from allUsages
+  const currentUsage = deriveCurrentUsage(allUsages, today);
+  const nextPlannedUsage = deriveNextPlanned(allUsages, today);
 
   // Fetch menu data
   const fetchMenu = useCallback(async () => {
@@ -219,11 +245,10 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
       if (!res.ok) { setError(json.error ?? "Failed to load menu"); return; }
       const data = json.data as MenuDetail;
       setMenu(data);
-      setItems(data.items);
+      setItems(data.items ?? []);
+      setAllUsages(data.allUsages ?? []);
       setEditTitle(data.title);
       setEditDescription(data.description ?? "");
-      setEditStartDate(data.startDate ?? "");
-      setEditEndDate(data.endDate ?? "");
     } catch {
       setError("Something went wrong.");
     } finally {
@@ -247,15 +272,11 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
     }
   }, [mode, loading]);
 
-  // Save menu-level edits
+  // Save menu-level edits (title + description only)
   async function handleSave() {
     if (!menu) return;
     setEditError(null);
     if (!editTitle.trim()) { setEditError("Title is required"); return; }
-    if (editStartDate && editEndDate && editEndDate < editStartDate) {
-      setEditError("End date must be on or after start date");
-      return;
-    }
     setSaving(true);
     try {
       const res = await fetch(`/api/menus/${menuId}`, {
@@ -264,15 +285,14 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
         body: JSON.stringify({
           title: editTitle.trim(),
           description: editDescription.trim() || null,
-          startDate: editStartDate || null,
-          endDate: editEndDate || null,
         }),
       });
       const json = await res.json();
       if (!res.ok) { setEditError(json.error ?? "Failed to save"); return; }
       const updated = json.data as MenuDetail;
       setMenu(updated);
-      setItems(updated.items);
+      setItems(updated.items ?? items);
+      setAllUsages(updated.allUsages ?? allUsages);
       onUpdated(updated);
       setMode("view");
     } catch {
@@ -281,6 +301,32 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
       setSaving(false);
     }
   }
+
+  // Recompute item-derived summary fields and push them up to the parent list
+  // so Sort (Most Recipes) / pill display stay in sync without a reload —
+  // same propagation discipline as usage changes.
+  const propagateItemsChange = useCallback((base: MenuDetail, nextItems: MenuRecipeItem[]) => {
+    // Recompute the menu total from each item's (already scaled) estimatedCost.
+    // The server recomputes this authoritatively on next load; this just keeps
+    // the pill accurate after an optimistic add/remove/servings change.
+    const itemCosts = nextItems.map((it) => parseCost(it.recipe.estimatedCost));
+    const anyUnpriced = itemCosts.some((c) => c === null);
+    const sum = itemCosts.reduce<number | null>(
+      (acc, c) => (c !== null ? (acc ?? 0) + c : acc),
+      null,
+    );
+    const updated: MenuDetail = {
+      ...base,
+      items: nextItems,
+      itemCount: nextItems.length,
+      totalServings: nextItems.reduce((s, it) => s + it.servings, 0),
+      recipePhotoUrls: nextItems.map((it) => it.recipe.photoUrl),
+      totalCost: sum !== null ? formatCost(sum) : null,
+      isPartialCost: sum !== null && (anyUnpriced || base.isPartialCost),
+    };
+    setMenu(updated);
+    onUpdated(updated);
+  }, [onUpdated]);
 
   // Patch a single item
   async function patchItem(itemId: string, data: Record<string, unknown>) {
@@ -292,14 +338,11 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
         body: JSON.stringify(data),
       });
       const json = await res.json();
-      if (res.ok) {
-        const updated = json.data as MenuRecipeItem;
-        setItems((prev) => prev.map((it) => (it.id === itemId ? updated : it)));
-        // Update summary totals
-        setMenu((prev) => prev ? {
-          ...prev,
-          totalServings: items.map((it) => it.id === itemId ? (data.servings as number ?? it.servings) : it.servings).reduce((a, b) => a + b, 0),
-        } : prev);
+      if (res.ok && menu) {
+        const updatedItem = json.data as MenuRecipeItem;
+        const nextItems = items.map((it) => (it.id === itemId ? updatedItem : it));
+        setItems(nextItems);
+        propagateItemsChange(menu, nextItems);
       }
     } finally {
       setSavingItemId(null);
@@ -308,10 +351,10 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
 
   // Delete a single item
   async function deleteItem(itemId: string) {
-    setItems((prev) => prev.filter((it) => it.id !== itemId));
+    const nextItems = items.filter((it) => it.id !== itemId);
+    setItems(nextItems);
+    if (menu) propagateItemsChange(menu, nextItems);
     await fetch(`/api/menus/${menuId}/items/${itemId}`, { method: "DELETE" });
-    // Update menu summary
-    setMenu((prev) => prev ? { ...prev, itemCount: prev.itemCount - 1 } : prev);
   }
 
   // Add a recipe
@@ -324,10 +367,11 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
         body: JSON.stringify({ recipeId: recipe.id }),
       });
       const json = await res.json();
-      if (res.ok) {
+      if (res.ok && menu) {
         const newItem = json.data as MenuRecipeItem;
-        setItems((prev) => [...prev, newItem]);
-        setMenu((prev) => prev ? { ...prev, itemCount: prev.itemCount + 1 } : prev);
+        const nextItems = [...items, newItem];
+        setItems(nextItems);
+        propagateItemsChange(menu, nextItems);
       }
     } catch { /* ignore */ }
   }
@@ -341,6 +385,7 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
     const newIndex = items.findIndex((it) => it.id === over.id);
     const newOrder = arrayMove(items, oldIndex, newIndex);
     setItems(newOrder);
+    if (menu) propagateItemsChange(menu, newOrder);
 
     await fetch(`/api/menus/${menuId}/items/reorder`, {
       method: "PATCH",
@@ -349,8 +394,60 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
     });
   }
 
-  const today = localToday();
-  const startDatePast = menu?.startDate ? menu.startDate < today : false;
+  // Recompute usage-derived summary fields and push them up to the parent list
+  // so Sort/Filter (which operate on the parent's summaries) stay in sync.
+  const propagateUsageChange = useCallback((base: MenuDetail, nextUsages: MenuUsageRecord[]) => {
+    const updated: MenuDetail = {
+      ...base,
+      allUsages: [...nextUsages].sort((a, b) => b.startDate.localeCompare(a.startDate)),
+      currentUsage: deriveCurrentUsage(nextUsages, today),
+      nextPlannedUsage: deriveNextPlanned(nextUsages, today),
+      usageCount: nextUsages.filter((u) => u.type === "logged").length,
+    };
+    setMenu(updated);
+    onUpdated(updated);
+  }, [today, onUpdated]);
+
+  // Save a usage (log or plan)
+  async function handleSaveUsage() {
+    if (!logPanelOpen || !logForm.startDate) return;
+    setSavingUsage(true);
+    try {
+      const res = await fetch(`/api/menus/${menuId}/usages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startDate: logForm.startDate,
+          endDate: logForm.endDate || null,
+          type: logPanelOpen === "log" ? "logged" : "planned",
+          notes: logForm.notes.trim() || null,
+        }),
+      });
+      const json = await res.json();
+      if (res.ok && menu) {
+        const newUsage = json.data as MenuUsageRecord;
+        const nextUsages = [...allUsages, newUsage];
+        setAllUsages(nextUsages);
+        propagateUsageChange(menu, nextUsages);
+      }
+      setLogPanelOpen(null);
+      setLogForm({ startDate: "", endDate: "", notes: "" });
+    } catch { /* ignore */ } finally {
+      setSavingUsage(false);
+    }
+  }
+
+  // Delete a usage
+  async function handleDeleteUsage(usageId: string) {
+    if (!menu) return;
+    const nextUsages = allUsages.filter((u) => u.id !== usageId);
+    setAllUsages(nextUsages);
+    propagateUsageChange(menu, nextUsages);
+    await fetch(`/api/menus/${menuId}/usages/${usageId}`, { method: "DELETE" });
+  }
+
+  // Sort usages by date DESC for display
+  const sortedUsages = [...allUsages].sort((a, b) => b.startDate.localeCompare(a.startDate));
 
   return (
     <div
@@ -386,16 +483,19 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
                         </svg>
                       </button>
                       <h2 className="text-xl font-bold text-text truncate">{menu.title}</h2>
+                      {currentUsage && (
+                        <span className="flex-shrink-0 rounded-full bg-highlight/15 px-2 py-0.5 text-xs font-medium text-highlight">
+                          Current · {formatDateRange(currentUsage.startDate, currentUsage.endDate)}
+                        </span>
+                      )}
+                      {!currentUsage && nextPlannedUsage && (
+                        <span className="flex-shrink-0 rounded-full bg-border/40 px-2 py-0.5 text-xs text-muted">
+                          Planned · {formatDateRange(nextPlannedUsage.startDate, nextPlannedUsage.endDate)}
+                        </span>
+                      )}
                     </div>
-                    {(menu.startDate || menu.description) && (
-                      <div className="ml-8 mt-0.5 space-y-0.5">
-                        {menu.startDate && (
-                          <p className="text-sm text-muted">{formatDateRange(menu.startDate, menu.endDate)}</p>
-                        )}
-                        {menu.description && (
-                          <p className="text-sm text-muted">{menu.description}</p>
-                        )}
-                      </div>
+                    {menu.description && (
+                      <p className="ml-8 mt-0.5 text-sm text-muted">{menu.description}</p>
                     )}
                     <p className="ml-8 text-xs text-muted mt-1">
                       {menu.totalServings} serving{menu.totalServings !== 1 ? "s" : ""} total
@@ -433,31 +533,6 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
                     rows={2}
                     className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20 resize-none"
                   />
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1">
-                      <label className="text-xs font-medium text-muted block mb-1">Start date</label>
-                      <input
-                        type="date"
-                        value={editStartDate}
-                        onChange={(e) => {
-                          setEditStartDate(e.target.value);
-                          if (!e.target.value) setEditEndDate("");
-                        }}
-                        className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-text outline-none focus:border-highlight focus:ring-2 focus:ring-highlight/20"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <label className="text-xs font-medium text-muted block mb-1">End date</label>
-                      <input
-                        type="date"
-                        value={editEndDate}
-                        min={editStartDate || undefined}
-                        onChange={(e) => setEditEndDate(e.target.value)}
-                        disabled={!editStartDate}
-                        className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-text outline-none focus:border-highlight focus:ring-2 focus:ring-highlight/20 disabled:opacity-50"
-                      />
-                    </div>
-                  </div>
                   {editError && <p className="text-xs text-destructive">{editError}</p>}
                   <div className="flex items-center gap-3">
                     <button type="button" onClick={handleSave} disabled={saving || !editTitle.trim()}
@@ -473,8 +548,9 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
               )}
             </div>
 
-            {/* Item list */}
+            {/* Scrollable body */}
             <div className="flex-1 overflow-y-auto">
+              {/* Item list */}
               {items.length === 0 ? (
                 <div className="py-10 text-center">
                   <p className="text-sm text-muted">No recipes in this menu yet.</p>
@@ -533,8 +609,6 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
                                   <input
                                     type="date"
                                     value={item.cookDate ?? ""}
-                                    min={menu.startDate ?? undefined}
-                                    max={menu.endDate ?? undefined}
                                     onChange={(e) => {
                                       const val = e.target.value || null;
                                       setItems((prev) => prev.map((it) => it.id === item.id ? { ...it, cookDate: val } : it));
@@ -555,14 +629,14 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
                                       onBlur={(e) => patchItem(item.id, { servings: Math.max(1, parseInt(e.target.value) || 1) })}
                                       className="w-16 rounded-lg border border-border bg-background px-2 py-1 text-xs text-text outline-none focus:border-highlight"
                                     />
-                                    <span className="text-xs text-muted">svgs</span>
+                                    <span className="text-xs text-muted">servings</span>
                                   </div>
                                   {savingItemId === item.id && (
                                     <span className="text-xs text-muted animate-pulse">Saving…</span>
                                   )}
                                 </div>
                                 {/* Cook log prompt */}
-                                {startDatePast && item.cookDate && item.cookDate < today && !item.notes && (
+                                {item.cookDate && item.cookDate < today && !item.notes && (
                                   <div className="mt-2">
                                     <textarea
                                       placeholder="How did it go?"
@@ -623,6 +697,142 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
                   ) : (
                     <p className="text-xs text-muted text-center py-2">Maximum 10 recipes per menu</p>
                   )}
+                </div>
+              )}
+
+              {/* Log/Plan panel (view mode only) */}
+              {mode === "view" && (
+                <div className="border-t border-border/60 px-6 py-4">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLogPanelOpen(logPanelOpen === "log" ? null : "log");
+                        setLogForm({ startDate: "", endDate: "", notes: "" });
+                      }}
+                      className={cn(
+                        "rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
+                        logPanelOpen === "log"
+                          ? "border-highlight bg-highlight/10 text-highlight"
+                          : "border-border bg-card text-text hover:bg-card-hover",
+                      )}
+                    >
+                      Log Menu
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLogPanelOpen(logPanelOpen === "plan" ? null : "plan");
+                        setLogForm({ startDate: "", endDate: "", notes: "" });
+                      }}
+                      className={cn(
+                        "rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
+                        logPanelOpen === "plan"
+                          ? "border-highlight bg-highlight/10 text-highlight"
+                          : "border-border bg-card text-text hover:bg-card-hover",
+                      )}
+                    >
+                      Plan Menu
+                    </button>
+                  </div>
+
+                  {logPanelOpen && (
+                    <div className="mt-3 rounded-xl border border-border bg-background p-4 space-y-3">
+                      <p className="text-xs font-semibold text-muted uppercase tracking-wide">
+                        {logPanelOpen === "log" ? "Log a past or current use" : "Plan a future use"}
+                      </p>
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1">
+                          <label className="text-xs font-medium text-muted block mb-1">
+                            Start date <span className="text-destructive">*</span>
+                          </label>
+                          <input
+                            type="date"
+                            value={logForm.startDate}
+                            onChange={(e) => setLogForm((f) => ({ ...f, startDate: e.target.value, endDate: e.target.value ? f.endDate : "" }))}
+                            className="w-full rounded-lg border border-border bg-card px-2.5 py-1.5 text-sm text-text outline-none focus:border-highlight focus:ring-2 focus:ring-highlight/20"
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <label className="text-xs font-medium text-muted block mb-1">End date <span className="text-muted font-normal">(optional)</span></label>
+                          <input
+                            type="date"
+                            value={logForm.endDate}
+                            min={logForm.startDate || undefined}
+                            disabled={!logForm.startDate}
+                            onChange={(e) => setLogForm((f) => ({ ...f, endDate: e.target.value }))}
+                            className="w-full rounded-lg border border-border bg-card px-2.5 py-1.5 text-sm text-text outline-none focus:border-highlight focus:ring-2 focus:ring-highlight/20 disabled:opacity-50"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-muted block mb-1">Notes <span className="text-muted font-normal">(optional)</span></label>
+                        <textarea
+                          value={logForm.notes}
+                          onChange={(e) => setLogForm((f) => ({ ...f, notes: e.target.value }))}
+                          placeholder="Any notes about this use…"
+                          rows={2}
+                          className="w-full rounded-lg border border-border bg-card px-2.5 py-1.5 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20 resize-none"
+                        />
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={handleSaveUsage}
+                          disabled={savingUsage || !logForm.startDate}
+                          className="rounded-lg bg-highlight px-4 py-1.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                        >
+                          {savingUsage ? "Saving…" : "Save"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setLogPanelOpen(null); setLogForm({ startDate: "", endDate: "", notes: "" }); }}
+                          className="text-sm text-muted hover:text-text transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Usage history (view mode only) */}
+              {mode === "view" && sortedUsages.length > 0 && (
+                <div className="border-t border-border/60 px-6 py-4">
+                  <p className="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Usage history</p>
+                  <ul className="space-y-1.5">
+                    {sortedUsages.map((usage) => (
+                      <li key={usage.id} className="flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm text-text">
+                            {formatDateRange(usage.startDate, usage.endDate)}
+                          </span>
+                          {usage.notes && (
+                            <span className="ml-2 text-xs text-muted truncate">{usage.notes}</span>
+                          )}
+                        </div>
+                        <span className={cn(
+                          "flex-shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
+                          usage.type === "logged"
+                            ? "bg-border/40 text-muted"
+                            : "bg-highlight/15 text-highlight",
+                        )}>
+                          {usage.type === "logged" ? "Logged" : "Planned"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteUsage(usage.id)}
+                          aria-label="Delete usage"
+                          className="flex-shrink-0 text-muted/50 hover:text-destructive transition-colors"
+                        >
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+                            <path d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </div>

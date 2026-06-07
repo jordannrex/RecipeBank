@@ -37,6 +37,7 @@ model User {
   mealPlans     MealPlan[]
   shoppingLists ShoppingList[]
   menus         Menu[]
+  menuUsages    MenuUsage[]
   sessions      Session[]
   passwordResetTokens PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
@@ -282,6 +283,11 @@ model ShoppingList {
   recipe Recipe?       @relation(fields: [recipeId], references: [id], onDelete: SetNull)
   items ShoppingItem[]
 
+  // At most one list per (user, recipe). Makes the add-item find-or-create
+  // atomic via upsert and prevents the concurrent-POST race that created
+  // duplicate lists. (recipeId NULL = manual list; Postgres treats NULLs as
+  // distinct, so multiple manual lists are still allowed — manual adds are serial.)
+  @@unique([userId, recipeId])
   @@index([userId])
   @@index([recipeId])
   @@map("shopping_lists")
@@ -323,16 +329,34 @@ model Menu {
   userId      String    @map("user_id")
   title       String
   description String?   @db.Text
-  startDate   DateTime? @map("start_date") @db.Date
-  endDate     DateTime? @map("end_date")   @db.Date
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt      @map("updated_at")
 
-  user  User       @relation(fields: [userId],  references: [id], onDelete: Cascade)
-  items MenuItem[]
+  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items  MenuItem[]
+  usages MenuUsage[]
 
   @@index([userId])
   @@map("menus")
+}
+
+model MenuUsage {
+  id        String    @id @default(cuid())
+  menuId    String    @map("menu_id")
+  userId    String    @map("user_id")
+  startDate DateTime  @map("start_date") @db.Date
+  endDate   DateTime? @map("end_date")   @db.Date
+  type      String    @default("planned") // "planned" | "logged"
+  notes     String?   @db.Text
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt      @map("updated_at")
+
+  menu Menu @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([menuId])
+  @@index([userId])
+  @@map("menu_usages")
 }
 
 model MenuItem {

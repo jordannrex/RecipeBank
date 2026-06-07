@@ -4,8 +4,7 @@ import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { MenuSummary } from "@/types/menu";
 
-function formatDateRange(startDate: string | null, endDate: string | null): string | null {
-  if (!startDate) return null;
+function formatDateRange(startDate: string, endDate: string | null): string {
   const fmtOpts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
   const [sy, sm, sd] = startDate.split("-").map(Number);
   const startLabel = new Date(sy, sm - 1, sd).toLocaleDateString("en-US", fmtOpts);
@@ -58,15 +57,24 @@ export function MenuPill({ menu, onClick, onEdit, onDelete }: Props) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const dateRange = formatDateRange(menu.startDate, menu.endDate);
   const photoRows = buildPhotoRows(menu.recipePhotoUrls);
   const hasTwoRows = photoRows.length === 2;
 
+  // Subtitle: servings [· cost]
   const subtitleParts: string[] = [];
-  if (dateRange) subtitleParts.push(dateRange);
   subtitleParts.push(`${menu.totalServings} serving${menu.totalServings !== 1 ? "s" : ""}`);
   if (menu.totalCost) {
     subtitleParts.push(`${menu.isPartialCost ? "~" : ""}${menu.totalCost}`);
+  }
+
+  // Date line
+  let dateLine: { label: string; highlight: boolean } | null = null;
+  if (menu.currentUsage) {
+    const dateStr = formatDateRange(menu.currentUsage.startDate, menu.currentUsage.endDate);
+    dateLine = { label: `Current · ${dateStr}`, highlight: true };
+  } else if (menu.nextPlannedUsage) {
+    const dateStr = formatDateRange(menu.nextPlannedUsage.startDate, menu.nextPlannedUsage.endDate);
+    dateLine = { label: `Planned · ${dateStr}`, highlight: false };
   }
 
   function handleDelete(e: React.MouseEvent) {
@@ -90,6 +98,11 @@ export function MenuPill({ menu, onClick, onEdit, onDelete }: Props) {
               <span className="text-muted/60"> · No price data</span>
             )}
           </p>
+          {dateLine && (
+            <p className={cn("text-xs mt-0.5 truncate", dateLine.highlight ? "text-highlight font-medium" : "text-muted")}>
+              {dateLine.label}
+            </p>
+          )}
           {menu.description && (
             <p className="text-xs text-muted truncate mt-0.5">{menu.description}</p>
           )}
