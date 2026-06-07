@@ -24,7 +24,8 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { calcIngredientCost } from "@/lib/units";
+import { calcIngredientCost, decimalToFraction } from "@/lib/units";
+import { QtyUnit } from "@/components/ui/fraction-display";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -343,7 +344,6 @@ function ViewMode({
                   {group.ingredients.map((ing) => {
                     const scaledQty = scaleQty(ing.quantity, scale);
                     const qtyNum = scaledQty ? parseFloat(scaledQty) : null;
-                    const qtyUnit = [qtyNum != null ? String(qtyNum) : null, ing.unit || null].filter(Boolean).join(" ");
                     return (
                       <li key={ing.id} className="flex items-center justify-between gap-4 py-3">
                         <span className={cn("text-sm", ing.isOptional ? "text-muted" : "text-text")}>
@@ -351,8 +351,12 @@ function ViewMode({
                           {ing.preparation && <span className="ml-1 text-xs text-muted">({ing.preparation})</span>}
                           {ing.isOptional && <span className="ml-1.5 text-xs text-muted italic">optional</span>}
                         </span>
-                        {qtyUnit && (
-                          <span className="flex-shrink-0 text-sm font-semibold text-text">{qtyUnit}</span>
+                        {(qtyNum != null || ing.unit) && (
+                          <QtyUnit
+                            quantity={qtyNum}
+                            unit={ing.unit}
+                            className="flex-shrink-0 text-sm font-semibold text-text"
+                          />
                         )}
                       </li>
                     );
@@ -402,7 +406,8 @@ function ViewMode({
 // ── helpers ────────────────────────────────────────────────────────────────
 
 function fmtQtyUnit(quantity: string | null, unit: string | null): string {
-  const q = quantity ? String(parseFloat(quantity)) : null;
+  const n = quantity ? parseFloat(quantity) : null;
+  const q = n != null && !isNaN(n) ? decimalToFraction(n) : null;
   return [q, unit].filter(Boolean).join(" ");
 }
 
@@ -526,7 +531,7 @@ function ShoppingListMode({ recipe }: { recipe: SerializedRecipeWithRelations })
                     </svg>
                   </span>
                   <span className="flex-1 text-sm font-semibold text-text">{item.name}</span>
-                  <span className="text-sm text-text/60">{fmtQtyUnit(item.quantity, item.unit)}</span>
+                  <QtyUnit quantity={item.quantity} unit={item.unit} className="text-sm text-text/60" />
                 </button>
               </li>
             ))}
@@ -552,7 +557,7 @@ function ShoppingListMode({ recipe }: { recipe: SerializedRecipeWithRelations })
                   {/* Empty checkbox */}
                   <span className="h-5 w-5 shrink-0 rounded border-2 border-border/60" />
                   <span className="flex-1 text-sm text-text/70">{item.name}</span>
-                  <span className="text-sm text-text/40">{fmtQtyUnit(item.quantity, item.unit)}</span>
+                  <QtyUnit quantity={item.quantity} unit={item.unit} className="text-sm text-text/40" />
                 </button>
               </li>
             ))}
@@ -712,7 +717,7 @@ function PriceCalculatorMode({
             const row    = rows[ing.id] ?? { storePkgQty: "", storePkgUnit: ing.unit ?? "", price: "" };
             const sq     = scaleQty(ing.quantity, scale);
             const result = calcIngredientCost(sq, ing.unit, row.storePkgQty, row.storePkgUnit, row.price);
-            const recipeLabel = fmtQtyUnit(sq, ing.unit);
+            const recipeLabel = sq ? parseFloat(sq) : null;
             return (
               <div
                 key={ing.id}
@@ -721,8 +726,10 @@ function PriceCalculatorMode({
                 {/* Ingredient */}
                 <div className="min-w-0">
                   <p className="text-sm font-semibold text-text">{ing.name}</p>
-                  {recipeLabel && (
-                    <p className="text-xs text-muted">Recipe: {recipeLabel}</p>
+                  {(recipeLabel != null || ing.unit) && (
+                    <p className="text-xs text-muted">
+                      Recipe: <QtyUnit quantity={recipeLabel} unit={ing.unit} />
+                    </p>
                   )}
                 </div>
 
@@ -1629,6 +1636,160 @@ function EditMode({
 }
 
 // ---------------------------------------------------------------------------
+// Recipe Edits history section
+// ---------------------------------------------------------------------------
+
+type EditRow = {
+  id: string;
+  fieldName: string;
+  oldValue: string | null;
+  newValue: string | null;
+  createdAt: string;
+};
+
+function formatFieldName(f: string): string {
+  return f
+    .replace(/([A-Z])/g, " $1")
+    .replace(/^./, (s) => s.toUpperCase())
+    .trim();
+}
+
+function truncate(s: string | null, max = 80): string {
+  if (!s) return "—";
+  return s.length > max ? s.slice(0, max) + "…" : s;
+}
+
+function RecipeEditsSection({ recipeId }: { recipeId: string }) {
+  const [open, setOpen] = useState(false);
+  const [edits, setEdits] = useState<EditRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [dismissing, setDismissing] = useState<Set<string>>(new Set());
+
+  async function load() {
+    if (loaded) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/recipes/${recipeId}/edits?limit=200`);
+      const json = await res.json();
+      if (!res.ok) { setError(json.error ?? "Failed to load"); return; }
+      setEdits(json.data.edits as EditRow[]);
+      setLoaded(true);
+    } catch {
+      setError("Something went wrong.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function toggle() {
+    setOpen((v) => {
+      if (!v) load();
+      return !v;
+    });
+  }
+
+  async function dismiss(editId: string) {
+    setDismissing((prev) => new Set(prev).add(editId));
+    try {
+      await fetch(`/api/recipes/${recipeId}/edits/${editId}`, { method: "DELETE" });
+      setEdits((prev) => prev.filter((e) => e.id !== editId));
+    } finally {
+      setDismissing((prev) => { const s = new Set(prev); s.delete(editId); return s; });
+    }
+  }
+
+  return (
+    <div className="border-t border-border pt-4">
+      {/* Header toggle */}
+      <button
+        type="button"
+        onClick={toggle}
+        className="flex w-full items-center gap-2 text-left"
+        aria-expanded={open}
+      >
+        <svg
+          className={cn(
+            "h-4 w-4 flex-shrink-0 text-muted transition-transform duration-200",
+            open ? "rotate-90" : "rotate-0",
+          )}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M9 18l6-6-6-6" />
+        </svg>
+        <span className="text-sm font-semibold text-text">Recipe Edits</span>
+      </button>
+
+      {/* Collapsible table */}
+      {open && (
+        <div className="mt-3">
+          {loading ? (
+            <p className="py-6 text-center text-sm text-muted">Loading…</p>
+          ) : error ? (
+            <p className="py-4 text-sm text-destructive">{error}</p>
+          ) : edits.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted">No edit history yet.</p>
+          ) : (
+            <div className="overflow-hidden rounded-xl border border-border">
+              {/* Table header */}
+              <div className="grid grid-cols-[1fr_1fr_1fr_auto_auto] gap-x-4 border-b border-border bg-card px-4 py-2.5">
+                {["Field", "Before", "After", "Date", ""].map((h, i) => (
+                  <span key={i} className="text-xs font-semibold uppercase tracking-wider text-text/50">
+                    {h}
+                  </span>
+                ))}
+              </div>
+
+              {/* Rows */}
+              {edits.map((edit) => (
+                <div
+                  key={edit.id}
+                  className="grid grid-cols-[1fr_1fr_1fr_auto_auto] items-center gap-x-4 border-b border-border/60 px-4 py-3 last:border-b-0"
+                >
+                  <span className="text-sm font-medium text-text truncate">
+                    {formatFieldName(edit.fieldName)}
+                  </span>
+                  <span className="text-sm text-muted truncate" title={edit.oldValue ?? undefined}>
+                    {truncate(edit.oldValue)}
+                  </span>
+                  <span className="text-sm text-text truncate" title={edit.newValue ?? undefined}>
+                    {truncate(edit.newValue)}
+                  </span>
+                  <span className="text-xs text-muted whitespace-nowrap">
+                    {new Date(edit.createdAt).toLocaleDateString("en-US", {
+                      month: "short", day: "numeric", year: "numeric",
+                    })}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => dismiss(edit.id)}
+                    disabled={dismissing.has(edit.id)}
+                    aria-label="Dismiss this edit"
+                    className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-card-hover hover:text-destructive disabled:opacity-40"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" aria-hidden="true">
+                      <path d="M18 6L6 18M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -1642,6 +1803,8 @@ export function RecipeDetailView({ recipe: initialRecipe }: Props) {
   const [togglingFav, setTogglingFav] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showStickyTitle, setShowStickyTitle] = useState(false);
+  const titleRef = useRef<HTMLHeadingElement>(null);
 
   // "Add to List" button state
   type ListStatus = "checking" | "not-added" | "adding" | "added";
@@ -1695,6 +1858,20 @@ export function RecipeDetailView({ recipe: initialRecipe }: Props) {
     }
   }
 
+  // Sticky title bar — hide/show based on whether the h1 is in viewport
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => setShowStickyTitle(!entry.isIntersecting),
+      // rootMargin pushes the threshold down by the nav height (80px) so the bar
+      // appears exactly when the title disappears under the nav.
+      { threshold: 0, rootMargin: "-80px 0px 0px 0px" },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
   // Shared servings scaler — persists across View / Price Calculator tab switches.
   // Resets automatically whenever the base servings change (i.e. after an edit + save).
   const [currentServings, setCurrentServings] = useState(recipe.servings);
@@ -1740,6 +1917,21 @@ export function RecipeDetailView({ recipe: initialRecipe }: Props) {
   ];
 
   return (
+    <>
+      {/* ── Sticky title bar (appears once the h1 scrolls under the nav) ── */}
+      <div
+        aria-hidden={!showStickyTitle}
+        className={cn(
+          "fixed inset-x-0 top-20 z-40 border-b border-border bg-white",
+          "transition-[opacity,transform] duration-200 ease-out",
+          showStickyTitle ? "translate-y-0 opacity-100" : "-translate-y-3 opacity-0 pointer-events-none",
+        )}
+      >
+        <div className="mx-auto flex h-11 max-w-7xl items-center justify-center px-4 sm:px-6 lg:px-8">
+          <p className="truncate text-sm font-semibold text-text">{recipe.title}</p>
+        </div>
+      </div>
+
     <div className="mx-auto max-w-3xl space-y-6">
       {/* Back navigation */}
       <Link href="/recipes" className="inline-flex items-center gap-1.5 text-sm text-muted transition-colors hover:text-text">
@@ -1765,23 +1957,26 @@ export function RecipeDetailView({ recipe: initialRecipe }: Props) {
       {/* Header: title + actions */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-bold text-text leading-tight">{recipe.title}</h1>
+          <h1 ref={titleRef} className="text-2xl font-bold text-text leading-tight">{recipe.title}</h1>
           {recipe.sourceUrl && (() => {
             let display = recipe.sourceUrl;
             try { display = new URL(recipe.sourceUrl).hostname.replace(/^www\./, ""); } catch { /* use raw url */ }
             return (
-              <a
-                href={recipe.sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-xs text-muted hover:text-highlight transition-colors w-fit"
-              >
-                <svg className="h-3 w-3 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                </svg>
-                {display}
-              </a>
+              <div className="flex items-center gap-1.5 text-sm">
+                <span className="font-medium text-muted">Source:</span>
+                <a
+                  href={recipe.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 text-highlight hover:opacity-80 transition-opacity"
+                >
+                  <svg className="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                  </svg>
+                  {display}
+                </a>
+              </div>
             );
           })()}
         </div>
@@ -1957,6 +2152,10 @@ export function RecipeDetailView({ recipe: initialRecipe }: Props) {
           </div>
         </div>
       )}
+
+      {/* Recipe edit history */}
+      <RecipeEditsSection recipeId={recipe.id} />
     </div>
+    </>
   );
 }

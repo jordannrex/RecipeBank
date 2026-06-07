@@ -3,12 +3,14 @@ import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import type { CalendarEvent } from "@/types/calendar";
+import type { MenuBand } from "@/types/menu";
 
 // ---------------------------------------------------------------------------
 // GET /api/calendar?year=2026&month=6
 //
 // Returns all CookLog entries and MealPlan entries for the given month,
 // merged into a single CalendarEvent[] sorted by date ascending.
+// Also returns menuBands and menu-recipe events.
 // ---------------------------------------------------------------------------
 
 const querySchema = z.object({
@@ -27,11 +29,17 @@ export async function GET(request: Request) {
   const { year, month } = parsed.data;
 
   // Build a UTC date range covering the entire month.
-  // DB stores dates as @db.Date (midnight UTC).
   const startDate = new Date(Date.UTC(year, month - 1, 1));
   const endDate   = new Date(Date.UTC(year, month, 1)); // exclusive
 
-  const [cookLogs, mealPlans] = await Promise.all([
+  function toDateStr(d: Date): string {
+    const y  = d.getUTCFullYear();
+    const m  = String(d.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(d.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${dd}`;
+  }
+
+  const [cookLogs, mealPlans, menuItemsRaw, menuBandsRaw] = await Promise.all([
     prisma.cookLog.findMany({
       where: {
         userId: auth.user.id,
@@ -48,15 +56,26 @@ export async function GET(request: Request) {
       include: { recipe: { select: { title: true, photoUrl: true } } },
       orderBy: { plannedDate: "asc" },
     }),
+    prisma.menuItem.findMany({
+      where: {
+        menu: { userId: auth.user.id },
+        cookDate: { gte: startDate, lt: endDate },
+      },
+      include: {
+        menu: { select: { id: true, title: true } },
+        recipe: { select: { title: true, photoUrl: true } },
+      },
+      orderBy: { cookDate: "asc" },
+    }),
+    prisma.menu.findMany({
+      where: {
+        userId: auth.user.id,
+        startDate: { not: null, lte: new Date(Date.UTC(year, month, 0)) },
+        endDate: { not: null, gte: startDate },
+      },
+      select: { id: true, title: true, startDate: true, endDate: true },
+    }),
   ]);
-
-  function toDateStr(d: Date): string {
-    // DB Date fields are stored as midnight UTC; format as YYYY-MM-DD
-    const year  = d.getUTCFullYear();
-    const month = String(d.getUTCMonth() + 1).padStart(2, "0");
-    const day   = String(d.getUTCDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  }
 
   const events: CalendarEvent[] = [
     ...cookLogs.map((log) => ({
@@ -77,7 +96,27 @@ export async function GET(request: Request) {
       date:           toDateStr(plan.plannedDate),
       notes:          null,
     })),
+    ...menuItemsRaw
+      .filter((item) => item.cookDate !== null)
+      .map((item) => ({
+        id:             item.id,
+        type:           "menu-recipe" as const,
+        recipeId:       item.recipeId,
+        recipeTitle:    item.recipe.title,
+        recipePhotoUrl: item.recipe.photoUrl,
+        date:           toDateStr(item.cookDate!),
+        notes:          item.notes,
+        menuId:         item.menu.id,
+        menuTitle:      item.menu.title,
+      })),
   ].sort((a, b) => a.date.localeCompare(b.date));
 
-  return apiSuccess({ events });
+  const menuBands: MenuBand[] = menuBandsRaw.map((b) => ({
+    menuId:    b.id,
+    title:     b.title,
+    startDate: toDateStr(b.startDate!),
+    endDate:   toDateStr(b.endDate!),
+  }));
+
+  return apiSuccess({ events, menuBands });
 }

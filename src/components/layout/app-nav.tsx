@@ -15,6 +15,7 @@ const NAV_LINKS = [
   { href: "/home", label: "Home" },
   { href: "/recipes", label: "Recipe Bank" },
   { href: "/calendar", label: "Calendar" },
+  { href: "/menus",    label: "Menus" },
   { href: "/shopping", label: "Shopping List" },
 ];
 

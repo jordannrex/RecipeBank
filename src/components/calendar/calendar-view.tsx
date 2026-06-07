@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import type { CalendarEvent, PickerRecipe } from "@/types/calendar";
+import type { CalendarEvent, PickerRecipe, MenuBand } from "@/types/calendar";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,6 +93,7 @@ const MONTH_NAMES = [
 ];
 const DOW_LABELS    = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 const DOW_FULL      = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const BAND_COLORS   = ["bg-highlight/5", "bg-blue-500/5", "bg-purple-500/5"];
 
 // ---------------------------------------------------------------------------
 // Event detail modal — small popup shown when clicking any event
@@ -107,7 +108,10 @@ function EventDetailModal({
   onClose: () => void;
   onDelete: (e: CalendarEvent) => void;
 }) {
-  const isCookLog = event.type === "cook-log";
+  const today        = localToday();
+  const isCookLog    = event.type === "cook-log";
+  const isMenuRecipe = event.type === "menu-recipe";
+  const isSolid      = isCookLog || (isMenuRecipe && event.date <= today);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
@@ -118,6 +122,23 @@ function EventDetailModal({
   const displayDate = formatDisplayDate(event.date, {
     weekday: "long", month: "long", day: "numeric", year: "numeric",
   });
+  const [noteText, setNoteText]     = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+
+  async function handleSaveNote() {
+    if (!event.menuId || !noteText.trim()) return;
+    setSavingNote(true);
+    try {
+      await fetch(`/api/menus/${event.menuId}/items/${event.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: noteText.trim() }),
+      });
+      onClose();
+    } finally {
+      setSavingNote(false);
+    }
+  }
 
   return (
     <div
@@ -140,7 +161,7 @@ function EventDetailModal({
         ) : (
           <div className={cn(
             "w-full h-28 flex items-center justify-center",
-            isCookLog ? "bg-highlight/10" : "bg-border/20",
+            isSolid ? "bg-highlight/10" : "bg-border/20",
           )}>
             <svg className="h-10 w-10 text-muted/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 8.25v-1.5m0 1.5c-1.355 0-2.697.056-4.024.166C6.845 8.51 6 9.473 6 10.608v2.513m6-4.871c1.355 0 2.697.056 4.024.166C17.155 8.51 18 9.473 18 10.608v2.513M15 8.25v-1.5m-6 1.5v-1.5m12 9.75-1.5.75a3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-1.5-.75m0-2.25a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v4.5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V13.5Z" />
@@ -154,11 +175,9 @@ function EventDetailModal({
           <div className="flex items-center justify-between">
             <span className={cn(
               "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold",
-              isCookLog
-                ? "bg-highlight/10 text-highlight"
-                : "bg-border/40 text-muted",
+              isSolid ? "bg-highlight/10 text-highlight" : "bg-border/40 text-muted",
             )}>
-              {isCookLog ? (
+              {isSolid ? (
                 <>
                   <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
                     <path d="M5 13l4 4L19 7" />
@@ -192,12 +211,37 @@ function EventDetailModal({
             <p className="text-xs text-muted mt-0.5">{displayDate}</p>
           </div>
 
-          {/* Notes (cook log only) */}
-          {isCookLog && event.notes && (
-            <div className="rounded-lg bg-background border border-border/60 px-3 py-2.5">
-              <p className="text-xs font-medium text-muted mb-1">Notes</p>
-              <p className="text-sm text-text leading-relaxed">{event.notes}</p>
-            </div>
+          {/* Notes */}
+          {isMenuRecipe ? (
+            event.notes ? (
+              <div className="rounded-lg bg-background border border-border/60 px-3 py-2.5">
+                <p className="text-xs font-medium text-muted mb-1">Cook notes</p>
+                <p className="text-sm text-text leading-relaxed">{event.notes}</p>
+              </div>
+            ) : event.date < today ? (
+              <div className="space-y-1.5">
+                <textarea
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  placeholder="Add notes about how it went…"
+                  rows={3}
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20 resize-none"
+                />
+                <button type="button" onClick={handleSaveNote} disabled={savingNote || !noteText.trim()}
+                  className="rounded-lg bg-highlight px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                  {savingNote ? "Saving…" : "Save note"}
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs text-muted">No notes yet</p>
+            )
+          ) : (
+            isCookLog && event.notes && (
+              <div className="rounded-lg bg-background border border-border/60 px-3 py-2.5">
+                <p className="text-xs font-medium text-muted mb-1">Notes</p>
+                <p className="text-sm text-text leading-relaxed">{event.notes}</p>
+              </div>
+            )
           )}
 
           {/* Actions */}
@@ -211,16 +255,25 @@ function EventDetailModal({
                 <path d="M9 5l7 7-7 7" />
               </svg>
             </Link>
-            <button
-              type="button"
-              onClick={() => { onDelete(event); onClose(); }}
-              className="flex items-center gap-1 text-xs text-muted hover:text-destructive transition-colors"
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
-                <path d="m19 7-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16" />
-              </svg>
-              Remove
-            </button>
+            {isMenuRecipe ? (
+              <Link href="/menus"
+                className="flex items-center gap-1 text-xs text-muted hover:text-text transition-colors"
+                onClick={onClose}
+              >
+                Edit menu →
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={() => { onDelete(event); onClose(); }}
+                className="flex items-center gap-1 text-xs text-muted hover:text-destructive transition-colors"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+                  <path d="m19 7-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16" />
+                </svg>
+                Remove
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -241,12 +294,14 @@ function EventChip({
   onView: (e: CalendarEvent) => void;
   onDelete: (e: CalendarEvent) => void;
 }) {
-  const isCookLog = event.type === "cook-log";
+  const isMenuRecipe = event.type === "menu-recipe";
+  // Menu recipes look like a cook log if in the past, planned meal if future
+  const isSolid = event.type === "cook-log" || (isMenuRecipe && event.date <= localToday());
   return (
     <div
       className={cn(
         "group flex items-center gap-1 rounded px-1.5 py-0.5 text-xs leading-tight select-none",
-        isCookLog
+        isSolid
           ? "bg-highlight text-white"
           : "border border-highlight/50 bg-highlight/10 text-highlight",
       )}
@@ -260,17 +315,19 @@ function EventChip({
       >
         {event.recipeTitle}
       </button>
-      {/* × delete button */}
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onDelete(event); }}
-        aria-label={`Remove ${event.recipeTitle}`}
-        className="ml-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:opacity-80"
-      >
-        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-          <path d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
+      {/* × delete button — hidden for menu recipes */}
+      {!isMenuRecipe && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onDelete(event); }}
+          aria-label={`Remove ${event.recipeTitle}`}
+          className="ml-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:opacity-80"
+        >
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+            <path d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
@@ -290,7 +347,8 @@ function WeekEventBlock({
   onView: (e: CalendarEvent) => void;
   onDelete: (e: CalendarEvent) => void;
 }) {
-  const isCookLog = event.type === "cook-log";
+  const isMenuRecipe = event.type === "menu-recipe";
+  const isSolid      = event.type === "cook-log" || (isMenuRecipe && event.date <= localToday());
 
   // 3+ events: compact pill (same as before)
   if (totalCount >= 3) {
@@ -302,9 +360,7 @@ function WeekEventBlock({
     <div
       className={cn(
         "group relative flex-1 flex flex-col rounded-lg overflow-hidden cursor-pointer min-h-0 transition-opacity hover:opacity-90",
-        isCookLog
-          ? "bg-highlight"
-          : "border border-highlight/40 bg-highlight/10",
+        isSolid ? "bg-highlight" : "border border-highlight/40 bg-highlight/10",
       )}
       onClick={() => onView(event)}
       role="button"
@@ -324,10 +380,10 @@ function WeekEventBlock({
         ) : (
           <div className={cn(
             "flex-1 flex items-center justify-center min-h-0",
-            isCookLog ? "bg-white/10" : "bg-highlight/5",
+            isSolid ? "bg-white/10" : "bg-highlight/5",
           )}>
             <svg
-              className={cn("h-7 w-7", isCookLog ? "text-white/25" : "text-highlight/25")}
+              className={cn("h-7 w-7", isSolid ? "text-white/25" : "text-highlight/25")}
               fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}
             >
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 8.25v-1.5m0 1.5c-1.355 0-2.697.056-4.024.166C6.845 8.51 6 9.473 6 10.608v2.513m6-4.871c1.355 0 2.697.056 4.024.166C17.155 8.51 18 9.473 18 10.608v2.513M15 8.25v-1.5m-6 1.5v-1.5m12 9.75-1.5.75a3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-1.5-.75m0-2.25a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v4.5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V13.5Z" />
@@ -343,35 +399,37 @@ function WeekEventBlock({
       )}>
         <p className={cn(
           "font-semibold truncate leading-tight",
-          isCookLog ? "text-white" : "text-highlight",
+          isSolid ? "text-white" : "text-highlight",
           totalCount === 1 ? "text-[11px]" : "text-xs",
         )}>
           {event.recipeTitle}
         </p>
         <p className={cn(
           "text-[10px] mt-0.5 truncate",
-          isCookLog ? "text-white/60" : "text-highlight/60",
+          isSolid ? "text-white/60" : "text-highlight/60",
         )}>
-          {isCookLog ? "Cook Log" : "Planned Meal"}
+          {event.type === "cook-log" ? "Cook Log" : isSolid ? "Cook Log" : "Planned Meal"}
         </p>
       </div>
 
-      {/* Delete button — absolute, appears on hover */}
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onDelete(event); }}
-        aria-label={`Remove ${event.recipeTitle}`}
-        className={cn(
-          "absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity",
-          isCookLog
-            ? "bg-black/25 text-white hover:bg-black/40"
-            : "bg-highlight/15 text-highlight hover:bg-highlight/30",
-        )}
-      >
-        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3} strokeLinecap="round">
-          <path d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
+      {/* Delete button — absolute, appears on hover; hidden for menu recipes */}
+      {!isMenuRecipe && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onDelete(event); }}
+          aria-label={`Remove ${event.recipeTitle}`}
+          className={cn(
+            "absolute top-1 right-1 flex h-5 w-5 items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity",
+            isSolid
+              ? "bg-black/25 text-white hover:bg-black/40"
+              : "bg-highlight/15 text-highlight hover:bg-highlight/30",
+          )}
+        >
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3} strokeLinecap="round">
+            <path d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
@@ -391,7 +449,8 @@ function MonthEventBlock({
   onView: (e: CalendarEvent) => void;
   onDelete: (e: CalendarEvent) => void;
 }) {
-  const isCookLog = event.type === "cook-log";
+  const isMenuRecipe = event.type === "menu-recipe";
+  const isSolid      = event.type === "cook-log" || (isMenuRecipe && event.date <= localToday());
 
   // 1 event: photo card filling the available cell space
   if (totalCount === 1) {
@@ -399,7 +458,7 @@ function MonthEventBlock({
       <div
         className={cn(
           "group relative flex-1 flex flex-col rounded overflow-hidden cursor-pointer min-h-0 transition-opacity hover:opacity-90",
-          isCookLog ? "bg-highlight" : "border border-highlight/40 bg-highlight/10",
+          isSolid ? "bg-highlight" : "border border-highlight/40 bg-highlight/10",
         )}
         onClick={() => onView(event)}
         role="button"
@@ -417,30 +476,32 @@ function MonthEventBlock({
         ) : (
           <div className={cn(
             "flex-1 min-h-0",
-            isCookLog ? "bg-white/10" : "bg-highlight/5",
+            isSolid ? "bg-white/10" : "bg-highlight/5",
           )} />
         )}
         <div className="px-1.5 py-1 flex-shrink-0">
           <p className={cn(
             "text-[10px] font-semibold leading-tight truncate",
-            isCookLog ? "text-white" : "text-highlight",
+            isSolid ? "text-white" : "text-highlight",
           )}>
             {event.recipeTitle}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onDelete(event); }}
-          aria-label={`Remove ${event.recipeTitle}`}
-          className={cn(
-            "absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity",
-            isCookLog ? "bg-black/25 text-white" : "bg-highlight/15 text-highlight",
-          )}
-        >
-          <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3} strokeLinecap="round">
-            <path d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
+        {!isMenuRecipe && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onDelete(event); }}
+            aria-label={`Remove ${event.recipeTitle}`}
+            className={cn(
+              "absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full opacity-0 group-hover:opacity-100 transition-opacity",
+              isSolid ? "bg-black/25 text-white" : "bg-highlight/15 text-highlight",
+            )}
+          >
+            <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3} strokeLinecap="round">
+              <path d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
       </div>
     );
   }
@@ -449,9 +510,7 @@ function MonthEventBlock({
   return (
     <div className={cn(
       "group flex items-center gap-1 rounded px-1.5 py-0.5 text-xs leading-tight select-none",
-      isCookLog
-        ? "bg-highlight text-white"
-        : "border border-highlight/50 bg-highlight/10 text-highlight",
+      isSolid ? "bg-highlight text-white" : "border border-highlight/50 bg-highlight/10 text-highlight",
     )}>
       <button
         type="button"
@@ -461,16 +520,18 @@ function MonthEventBlock({
       >
         {event.recipeTitle}
       </button>
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onDelete(event); }}
-        aria-label={`Remove ${event.recipeTitle}`}
-        className="ml-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:opacity-80"
-      >
-        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-          <path d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
+      {!isMenuRecipe && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onDelete(event); }}
+          aria-label={`Remove ${event.recipeTitle}`}
+          className="ml-0.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity hover:opacity-80"
+        >
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+            <path d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
@@ -488,14 +549,13 @@ function EventCard({
   onView: (e: CalendarEvent) => void;
   onDelete: (e: CalendarEvent) => void;
 }) {
-  const isCookLog = event.type === "cook-log";
+  const isMenuRecipe = event.type === "menu-recipe";
+  const isSolid      = event.type === "cook-log" || (isMenuRecipe && event.date <= localToday());
   return (
     <div
       className={cn(
-        "flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition-colors hover:bg-card-hover",
-        isCookLog
-          ? "border-highlight/30 bg-highlight/8"
-          : "border-border bg-card",
+        "flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition-colors hover:opacity-90",
+        isSolid ? "border-highlight/30 bg-highlight/8" : "border-highlight/40 bg-highlight/10",
       )}
       onClick={() => onView(event)}
       role="button"
@@ -507,27 +567,29 @@ function EventCard({
         // eslint-disable-next-line @next/next/no-img-element
         <img src={event.recipePhotoUrl} alt="" className="h-10 w-10 rounded-lg object-cover flex-shrink-0 mt-0.5" />
       ) : (
-        <div className={cn("h-10 w-10 rounded-lg flex-shrink-0 mt-0.5", isCookLog ? "bg-highlight/20" : "bg-border/40")} />
+        <div className={cn("h-10 w-10 rounded-lg flex-shrink-0 mt-0.5", isSolid ? "bg-highlight/20" : "bg-highlight/15")} />
       )}
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-text truncate">{event.recipeTitle}</p>
-        <p className={cn("text-xs", isCookLog ? "text-highlight" : "text-muted")}>
-          {isCookLog ? "Cook Log" : "Planned Meal"}
+        <p className={cn("text-xs text-highlight", isSolid ? "opacity-100" : "opacity-70")}>
+          {event.type === "cook-log" ? "Cook Log" : isSolid ? "Cook Log" : "Planned Meal"}
         </p>
         {event.notes && (
           <p className="mt-1 text-xs text-muted line-clamp-2">{event.notes}</p>
         )}
       </div>
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onDelete(event); }}
-        aria-label={`Remove ${event.recipeTitle}`}
-        className="flex-shrink-0 text-muted hover:text-destructive transition-colors mt-0.5"
-      >
-        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
-          <path d="M6 18L18 6M6 6l12 12" />
-        </svg>
-      </button>
+      {!isMenuRecipe && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onDelete(event); }}
+          aria-label={`Remove ${event.recipeTitle}`}
+          className="flex-shrink-0 text-muted hover:text-destructive transition-colors mt-0.5"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+            <path d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }
@@ -766,11 +828,12 @@ function RecipePicker({
 // ---------------------------------------------------------------------------
 
 function MonthCell({
-  dateStr, isCurrentMonth, events, today, onAdd, onViewEvent, onDeleteEvent,
+  dateStr, isCurrentMonth, events, today, onAdd, onViewEvent, onDeleteEvent, menuBands,
 }: {
   dateStr: string; isCurrentMonth: boolean; events: CalendarEvent[];
   today: string; onAdd: (d: string) => void;
   onViewEvent: (e: CalendarEvent) => void; onDeleteEvent: (e: CalendarEvent) => void;
+  menuBands: MenuBand[];
 }) {
   const isToday  = dateStr === today;
   const dayNum   = Number(dateStr.split("-")[2]);
@@ -778,11 +841,23 @@ function MonthCell({
   const shown    = events.slice(0, MAX_SHOW);
   const overflow = events.length - MAX_SHOW;
 
+  const activeBands      = menuBands.filter((b) => dateStr >= b.startDate && dateStr <= b.endDate);
+  const bandColorIdx     = activeBands.length > 0 ? menuBands.indexOf(activeBands[0]) % BAND_COLORS.length : -1;
+  const bandColor        = bandColorIdx >= 0 ? BAND_COLORS[bandColorIdx] : null;
+  const isFirstDayOfBand = activeBands.length > 0 && dateStr === activeBands[0].startDate;
+
   return (
     <div className={cn(
       "relative min-h-[110px] border-b border-r border-border/50 p-1.5 group flex flex-col",
       !isCurrentMonth && "bg-card/30",
+      bandColor,
     )}>
+      {/* Band label on first day */}
+      {isFirstDayOfBand && (
+        <span className="mb-0.5 inline-block truncate rounded px-1 py-0 text-[9px] font-semibold text-highlight/80 bg-highlight/10 leading-tight flex-shrink-0">
+          {activeBands[0].title}
+        </span>
+      )}
       <div className="flex items-center justify-between mb-1 flex-shrink-0">
         <span className={cn(
           "flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium",
@@ -820,11 +895,12 @@ function MonthCell({
 }
 
 function MonthView({
-  year, month, events, today, onAdd, onViewEvent, onDeleteEvent,
+  year, month, events, today, onAdd, onViewEvent, onDeleteEvent, menuBands,
 }: {
   year: number; month: number; events: CalendarEvent[]; today: string;
   onAdd: (d: string) => void;
   onViewEvent: (e: CalendarEvent) => void; onDeleteEvent: (e: CalendarEvent) => void;
+  menuBands: MenuBand[];
 }) {
   const grid = buildMonthGrid(year, month);
   const byDate = groupByDate(events);
@@ -841,7 +917,8 @@ function MonthView({
         {grid.map((cell, i) => (
           <MonthCell key={i} {...cell}
             events={byDate.get(cell.dateStr) ?? []}
-            today={today} onAdd={onAdd} onViewEvent={onViewEvent} onDeleteEvent={onDeleteEvent} />
+            today={today} onAdd={onAdd} onViewEvent={onViewEvent} onDeleteEvent={onDeleteEvent}
+            menuBands={menuBands} />
         ))}
       </div>
     </div>
@@ -853,23 +930,33 @@ function MonthView({
 // ---------------------------------------------------------------------------
 
 function WeekDayColumn({
-  dateStr, events, today, onAdd, onViewEvent, onDeleteEvent,
+  dateStr, events, today, onAdd, onViewEvent, onDeleteEvent, menuBands,
 }: {
   dateStr: string; events: CalendarEvent[]; today: string;
   onAdd: (d: string) => void;
   onViewEvent: (e: CalendarEvent) => void; onDeleteEvent: (e: CalendarEvent) => void;
+  menuBands: MenuBand[];
 }) {
   const isToday = dateStr === today;
   const [, m, d] = dateStr.split("-").map(Number);
   const dow = parseDate(dateStr).getDay();
 
+  const activeBands  = menuBands.filter((b) => dateStr >= b.startDate && dateStr <= b.endDate);
+  const bandColor    = activeBands.length > 0 ? BAND_COLORS[menuBands.indexOf(activeBands[0]) % BAND_COLORS.length] : null;
+  const isFirstDay   = activeBands.length > 0 && dateStr === activeBands[0].startDate;
+
   return (
-    <div className="flex flex-col border-r border-border/50 last:border-r-0">
+    <div className={cn("flex flex-col border-r border-border/50 last:border-r-0", bandColor)}>
       {/* Column header */}
       <div className={cn(
         "flex flex-col items-center gap-0.5 border-b border-border/50 px-2 py-2",
         isToday && "bg-highlight/5",
       )}>
+        {isFirstDay && (
+          <span className="mb-0.5 truncate rounded px-1 text-[9px] font-semibold text-highlight/80 bg-highlight/10 leading-tight max-w-full">
+            {activeBands[0].title}
+          </span>
+        )}
         <span className={cn("text-xs font-semibold uppercase tracking-wide",
           isToday ? "text-highlight" : "text-muted")}>
           {DOW_LABELS[dow]}
@@ -909,11 +996,12 @@ function WeekDayColumn({
 }
 
 function WeekView({
-  weekDates, events, today, onAdd, onViewEvent, onDeleteEvent,
+  weekDates, events, today, onAdd, onViewEvent, onDeleteEvent, menuBands,
 }: {
   weekDates: string[]; events: CalendarEvent[]; today: string;
   onAdd: (d: string) => void;
   onViewEvent: (e: CalendarEvent) => void; onDeleteEvent: (e: CalendarEvent) => void;
+  menuBands: MenuBand[];
 }) {
   const byDate = groupByDate(events);
   return (
@@ -922,7 +1010,8 @@ function WeekView({
         {weekDates.map((dateStr) => (
           <WeekDayColumn key={dateStr} dateStr={dateStr}
             events={byDate.get(dateStr) ?? []}
-            today={today} onAdd={onAdd} onViewEvent={onViewEvent} onDeleteEvent={onDeleteEvent} />
+            today={today} onAdd={onAdd} onViewEvent={onViewEvent} onDeleteEvent={onDeleteEvent}
+            menuBands={menuBands} />
         ))}
       </div>
     </div>
@@ -1075,6 +1164,7 @@ export function CalendarView() {
   const [anchorDate, setAnchorDate]     = useState(today);
   const [viewMode, setViewMode]         = useState<ViewMode>("week");
   const [events, setEvents]             = useState<CalendarEvent[]>([]);
+  const [menuBands, setMenuBands]       = useState<MenuBand[]>([]);
   const [loading, setLoading]           = useState(true);
   const [pickerDate, setPickerDate]     = useState<string | null>(null);
   const [viewingEvent, setViewingEvent] = useState<CalendarEvent | null>(null);
@@ -1097,15 +1187,24 @@ export function CalendarView() {
         months.map(({ year, month }) =>
           fetch(`/api/calendar?year=${year}&month=${month}`)
             .then((r) => r.json())
-            .then((json) => (json.data?.events ?? []) as CalendarEvent[])
+            .then((json) => ({
+              events:    (json.data?.events    ?? []) as CalendarEvent[],
+              menuBands: (json.data?.menuBands ?? []) as MenuBand[],
+            }))
         )
       );
-      // Merge + deduplicate by id
-      const merged = new Map<string, CalendarEvent>();
-      for (const chunk of results) for (const ev of chunk) merged.set(ev.id, ev);
-      setEvents(Array.from(merged.values()));
+      // Merge + deduplicate events by id
+      const mergedEvents = new Map<string, CalendarEvent>();
+      for (const { events: evts } of results) for (const ev of evts) mergedEvents.set(ev.id, ev);
+      setEvents(Array.from(mergedEvents.values()));
+
+      // Merge + deduplicate menuBands by menuId
+      const mergedBands = new Map<string, MenuBand>();
+      for (const { menuBands: bands } of results) for (const b of bands) mergedBands.set(b.menuId, b);
+      setMenuBands(Array.from(mergedBands.values()));
     } catch {
       setEvents([]);
+      setMenuBands([]);
     } finally {
       setLoading(false);
     }
@@ -1174,6 +1273,11 @@ export function CalendarView() {
   }
 
   async function handleDeleteEvent(event: CalendarEvent) {
+    // Menu recipe events are managed via the Menus page, not removed from the calendar directly
+    if (event.type === "menu-recipe") {
+      setEvents((prev) => prev.filter((e) => e.id !== event.id));
+      return;
+    }
     setEvents((prev) => prev.filter((e) => e.id !== event.id));
     try {
       if (event.type === "cook-log") {
@@ -1242,7 +1346,7 @@ export function CalendarView() {
       </div>
 
       {/* ── Legend ────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 flex-wrap">
         <div className="flex items-center gap-1.5">
           <span className="inline-block h-3 w-3 rounded bg-highlight" />
           <span className="text-xs text-muted">Cook Log</span>
@@ -1262,11 +1366,13 @@ export function CalendarView() {
           year={anchorY} month={anchorM}
           events={visibleEvents} today={today}
           onAdd={setPickerDate} onViewEvent={setViewingEvent} onDeleteEvent={handleDeleteEvent}
+          menuBands={menuBands}
         />
       ) : viewMode === "week" ? (
         <WeekView
           weekDates={weekDates} events={visibleEvents} today={today}
           onAdd={setPickerDate} onViewEvent={setViewingEvent} onDeleteEvent={handleDeleteEvent}
+          menuBands={menuBands}
         />
       ) : (
         <DayView
