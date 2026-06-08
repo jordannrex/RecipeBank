@@ -3,26 +3,41 @@ import { prisma } from "@/lib/db";
 import { getGemini } from "@/lib/gemini";
 
 // ---------------------------------------------------------------------------
-// AI description generation
+// AI enrichment generation (description + hidden search keywords)
 // ---------------------------------------------------------------------------
 
+export type RecipeEnrichment = {
+  /** A 2–3 sentence natural-language description. Used as the recipe's
+   *  description only when the user hasn't written one. */
+  description: string | null;
+  /** A dense, comma-separated bag of hidden search descriptors. Never stored
+   *  or shown — folded into the embedding text so abstract queries match. */
+  keywords: string | null;
+};
+
 /**
- * Asks Gemini to write a 2–3 sentence semantic description for a recipe.
- * The description is optimised for embedding quality: it names the main
- * protein/ingredients, cooking technique, flavor profile, cuisine, and
- * serving occasion — all things a user might phrase in a natural-language
- * search query.
+ * Asks Gemini, in a single call, to produce two things for the search index:
  *
- * Returns null on failure so callers can skip gracefully.
+ *   1. description — an appetizing 2–3 sentence blurb (main ingredients,
+ *      technique, flavor, cuisine, occasion). Embedding-quality and also nice
+ *      to surface when the user hasn't written their own.
+ *   2. keywords — a dense bag of categorical descriptors a person might search
+ *      for even when the words don't appear in the recipe (dietary, flavor,
+ *      texture, meal type, cooking method, occasion, protein category). This is
+ *      the enrichment that lets queries like "spicy", "seafood", or
+ *      "vegetarian" retrieve well. It is never persisted or shown — it only
+ *      enriches the embedding vector.
+ *
+ * Returns nulls on failure so callers can skip gracefully.
  */
-export async function generateAiDescription(recipe: {
+export async function generateRecipeEnrichment(recipe: {
   title: string;
   cuisine?: string | null;
   dishType?: string | null;
   flavorProfile?: string | null;
   ingredientGroups?: Array<{ ingredients: Array<{ name: string; quantity?: string | Decimal | null; unit?: string | null }> }>;
   steps?: Array<{ body: string }>;
-}): Promise<string | null> {
+}): Promise<RecipeEnrichment> {
   const ingredientNames = recipe.ingredientGroups
     ?.flatMap((g) => g.ingredients.map((i) => i.name))
     .filter(Boolean)
@@ -43,28 +58,37 @@ export async function generateAiDescription(recipe: {
     recipe.flavorProfile && `Flavor: ${recipe.flavorProfile}`,
   ].filter(Boolean).join("\n");
 
-  const prompt = `You are writing a concise recipe description for a cooking app's search index. Based on the recipe below, write 2–3 sentences that capture what this dish is. Cover the main protein or key ingredients, the cooking technique, the flavor profile, the cuisine style, and when someone would serve it. Write naturally, as if describing the dish to someone deciding what to cook tonight. Be specific — name key ingredients and describe the taste.
+  const prompt = `You are indexing a recipe for a cooking app's semantic search. Based on the recipe below, return JSON with exactly two fields:
+
+{
+  "description": "An appetizing 2–3 sentence description: name the main protein or key ingredients, the cooking technique, the flavor profile, the cuisine style, and when someone would serve it. Write naturally, as if describing it to someone deciding what to cook tonight.",
+  "keywords": "A dense, comma-separated list of search descriptors a person might use to find this dish — even words that do NOT appear in the recipe. Cover, where genuinely applicable: dietary categories (vegetarian, vegan, gluten-free, dairy-free, pescatarian), flavor (spicy, sweet, savory, sour, smoky, umami, tangy), texture (crispy, creamy, crunchy, tender), meal type (breakfast, lunch, dinner, snack, dessert, appetizer, side), cooking method (grilled, baked, fried, roasted, sauteed, raw, slow-cooked), occasion/season (weeknight, comfort food, summer, holiday), and the protein/ingredient category (seafood, poultry, beef, pork, plant-based). Be generous but accurate — never claim a dietary category that isn't true."
+}
 
 ${lines}
 
-Return only the description text. No title, no labels, no extra commentary.`;
+Return ONLY the JSON object — no extra commentary.`;
 
   try {
     const model = getGemini().getGenerativeModel({
       model: "gemini-2.5-flash",
       generationConfig: {
-        temperature: 0.4,
-        maxOutputTokens: 256,
+        temperature: 0.3,
+        maxOutputTokens: 512,
+        responseMimeType: "application/json",
         // @ts-expect-error — thinkingConfig valid for gemini-2.5-flash, not yet in SDK types
         thinkingConfig: { thinkingBudget: 0 },
       },
     });
     const result = await model.generateContent(prompt);
-    const text = result.response.text().trim();
-    return text || null;
+    const parsed = JSON.parse(result.response.text()) as Partial<RecipeEnrichment>;
+    return {
+      description: typeof parsed.description === "string" ? parsed.description.trim() || null : null,
+      keywords: typeof parsed.keywords === "string" ? parsed.keywords.trim() || null : null,
+    };
   } catch (err) {
-    console.error("[embeddings] AI description generation failed:", err);
-    return null;
+    console.error("[embeddings] recipe enrichment generation failed:", err);
+    return { description: null, keywords: null };
   }
 }
 
@@ -183,36 +207,39 @@ type RecipeForEmbed = {
  * Runs the full embedding pipeline for a recipe, non-blocking.
  *
  * Steps:
- *   1. If the recipe has no description, ask Gemini to generate one and
- *      save it to the DB — this improves semantic search quality without
- *      requiring any work from the user.
- *   2. Build the embedding text (now including the description).
- *   3. Generate and store the embedding vector.
+ *   1. Generate enrichment (AI description + hidden search keywords) in one
+ *      Gemini call. This runs regardless of whether the user wrote their own
+ *      description, so a terse user description never starves the embedding.
+ *   2. If the recipe has no description, save the AI one to the DB (nice UX).
+ *   3. Build the embedding text from the visible fields PLUS the hidden
+ *      keyword bag — so abstract queries ("spicy", "seafood", "vegetarian")
+ *      retrieve well. The keywords are never persisted or shown.
+ *   4. Generate and store the embedding vector.
  *
  * All failures are logged and swallowed so callers are never affected.
  */
 export function embedRecipeInBackground(recipe: RecipeForEmbed): void {
   (async () => {
     try {
-      let description = recipe.description ?? null;
+      // Step 1 — enrichment (one call: description + hidden keywords)
+      const enrichment = await generateRecipeEnrichment(recipe);
 
-      // Step 1 — generate AI description if the recipe doesn't have one
-      if (!description?.trim()) {
-        const aiDesc = await generateAiDescription(recipe);
-        if (aiDesc) {
-          description = aiDesc;
-          await prisma.recipe.update({
-            where: { id: recipe.id },
-            data: { description: aiDesc },
-          });
-          console.log(`[embeddings] AI description saved for recipe ${recipe.id}`);
-        }
+      // Step 2 — only fill in a description for the user if they left it blank
+      let description = recipe.description ?? null;
+      if (!description?.trim() && enrichment.description) {
+        description = enrichment.description;
+        await prisma.recipe.update({
+          where: { id: recipe.id },
+          data: { description: enrichment.description },
+        });
+        console.log(`[embeddings] AI description saved for recipe ${recipe.id}`);
       }
 
-      // Step 2 — build rich embedding text (includes description)
-      const embeddingText = buildEmbeddingText({ ...recipe, description });
+      // Step 3 — build rich embedding text (visible fields + hidden keywords)
+      let embeddingText = buildEmbeddingText({ ...recipe, description });
+      if (enrichment.keywords) embeddingText += ` ${enrichment.keywords}`;
 
-      // Step 3 — generate and store vector
+      // Step 4 — generate and store vector
       const embedding = await generateEmbedding(embeddingText);
       if (!embedding) return;
       const vectorString = `[${embedding.join(",")}]`;
