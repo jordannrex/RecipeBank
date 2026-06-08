@@ -1374,20 +1374,23 @@ function EditMode({
         complexity: "EASY" | "MEDIUM" | "HARD" | null;
         prepTimeMinutes: number | null;
         cookTimeMinutes: number | null;
+        description: string | null;
       };
 
-      // In edit mode, always apply non-null suggestions — the user explicitly
-      // asked for them. Fields turn brand-red to indicate AI-suggested values.
+      // Only fill fields the user has left empty — already-filled fields stay
+      // untouched (and gray). Filled-in fields turn brand-red to flag that the
+      // value came from the AI. Complexity is a required field that always has
+      // a value on an existing recipe, so it is never auto-suggested here.
       const newSuggested = new Set<string>();
       const nextForm = { ...form };
-      if (s.cuisine)          { nextForm.cuisine = s.cuisine;                        newSuggested.add("cuisine"); }
-      if (s.dishType)         { nextForm.dishType = s.dishType;                      newSuggested.add("dishType"); }
-      if (s.complexity)       { nextForm.complexity = s.complexity;                  newSuggested.add("complexity"); }
-      if (s.prepTimeMinutes)  { nextForm.prepTimeMinutes = String(s.prepTimeMinutes); newSuggested.add("prepTimeMinutes"); }
-      if (s.cookTimeMinutes)  { nextForm.cookTimeMinutes = String(s.cookTimeMinutes); newSuggested.add("cookTimeMinutes"); }
+      if (s.cuisine        && !form.cuisine.trim())         { nextForm.cuisine = s.cuisine;                        newSuggested.add("cuisine"); }
+      if (s.dishType       && !form.dishType.trim())        { nextForm.dishType = s.dishType;                      newSuggested.add("dishType"); }
+      if (s.prepTimeMinutes && !form.prepTimeMinutes.trim()) { nextForm.prepTimeMinutes = String(s.prepTimeMinutes); newSuggested.add("prepTimeMinutes"); }
+      if (s.cookTimeMinutes && !form.cookTimeMinutes.trim()) { nextForm.cookTimeMinutes = String(s.cookTimeMinutes); newSuggested.add("cookTimeMinutes"); }
+      if (s.description    && !form.description.trim())     { nextForm.description = s.description;                newSuggested.add("description"); }
 
       if (newSuggested.size === 0) {
-        setSuggestError("No suggestions returned — try adding more detail to the recipe.");
+        setSuggestError("Everything's already filled in — nothing to suggest.");
       } else {
         setForm(nextForm);
         setSuggestedFields(newSuggested);
@@ -1502,10 +1505,13 @@ function EditMode({
           <textarea
             id="edit-desc"
             value={form.description}
-            onChange={(e) => { setField("description", e.target.value); growTextarea(e.target); }}
+            onChange={(e) => { setField("description", e.target.value); clearSuggested("description"); growTextarea(e.target); }}
             ref={growTextarea}
             rows={2}
-            className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20 resize-none overflow-hidden"
+            className={cn(
+              "w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20 resize-none overflow-hidden",
+              suggestedFields.has("description") ? "text-brand-red" : "text-text",
+            )}
           />
         </div>
         {/* Source URL */}

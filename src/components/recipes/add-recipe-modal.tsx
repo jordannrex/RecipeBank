@@ -149,6 +149,7 @@ export function AddRecipeModal({ open, onClose }: Props) {
         complexity: "EASY" | "MEDIUM" | "HARD" | null;
         prepTimeMinutes: number | null;
         cookTimeMinutes: number | null;
+        description: string | null;
       };
       const newSuggested = new Set<string>();
       if (data.cuisine    && !cuisine.trim())  { setCuisine(data.cuisine);                       newSuggested.add("cuisine"); }
@@ -156,6 +157,7 @@ export function AddRecipeModal({ open, onClose }: Props) {
       if (data.complexity && complexity === "MEDIUM") { setComplexity(data.complexity);           newSuggested.add("complexity"); }
       if (data.prepTimeMinutes && !prepTime.trim()) { setPrepTime(String(data.prepTimeMinutes)); newSuggested.add("prepTimeMinutes"); }
       if (data.cookTimeMinutes && !cookTime.trim()) { setCookTime(String(data.cookTimeMinutes)); newSuggested.add("cookTimeMinutes"); }
+      if (data.description && !description.trim()) { setDescription(data.description); resizeAllTextareas(); newSuggested.add("description"); }
       setSuggestedFields(newSuggested);
     } catch { setSuggestError("Network error — please try again."); } finally {
       setSuggesting(false);
@@ -618,11 +620,14 @@ export function AddRecipeModal({ open, onClose }: Props) {
             <textarea
               id="recipe-desc"
               value={description}
-              onChange={(e) => { setDescription(e.target.value); growTextarea(e.target); }}
+              onChange={(e) => { setDescription(e.target.value); clearSuggested("description"); growTextarea(e.target); }}
               ref={growTextarea}
               placeholder="A brief description…"
               rows={2}
-              className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20 resize-none overflow-hidden"
+              className={cn(
+                "w-full rounded-lg border border-border bg-card px-3 py-2 text-sm outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20 resize-none overflow-hidden",
+                suggestedFields.has("description") ? "text-brand-red" : "text-text",
+              )}
             />
           </div>
           {/* Photo upload */}
