@@ -20,9 +20,9 @@ export async function GET(request: Request) {
     where: { userId: auth.user.id, recipeId },
     select: {
       items: {
-        // Include the name so the recipe page can match by name as well as id.
-        // ingredientId is unstable across recipe edits; name is stable.
-        select: { id: true, ingredientId: true, name: true },
+        // Include name + isChecked so the recipe page can match by name/id
+        // and also reflect the checked state (checked = "Have It" on recipe page).
+        select: { id: true, ingredientId: true, name: true, isChecked: true },
       },
     },
   });
