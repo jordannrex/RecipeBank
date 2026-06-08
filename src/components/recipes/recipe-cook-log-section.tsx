@@ -37,6 +37,11 @@ export function RecipeCookLogSection({ recipeId }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Inline note editing for an existing entry.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editNotes, setEditNotes] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
   useEffect(() => {
     fetch(`/api/recipes/${recipeId}/cook-log`)
       .then((r) => r.json())
@@ -79,6 +84,37 @@ export function RecipeCookLogSection({ recipeId }: Props) {
       await fetch(`/api/recipes/${recipeId}/cook-log/${id}`, { method: "DELETE" });
       setEntries((prev) => prev.filter((e) => e.id !== id));
     } catch {}
+  }
+
+  function startEdit(entry: LogEntry) {
+    setEditingId(entry.id);
+    setEditNotes(entry.notes ?? "");
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditNotes("");
+  }
+
+  async function saveEdit(id: string) {
+    setSavingEdit(true);
+    try {
+      const res = await fetch(`/api/recipes/${recipeId}/cook-log/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: editNotes.trim() || null }),
+      });
+      const json = await res.json();
+      if (res.ok) {
+        const updated = json.data as LogEntry;
+        setEntries((prev) => prev.map((e) => (e.id === id ? { ...e, notes: updated.notes } : e)));
+        cancelEdit();
+      }
+    } catch {
+      // leave the editor open so the user can retry
+    } finally {
+      setSavingEdit(false);
+    }
   }
 
   return (
@@ -159,21 +195,63 @@ export function RecipeCookLogSection({ recipeId }: Props) {
           {entries.map((entry) => (
             <li
               key={entry.id}
-              className="flex items-start justify-between rounded-xl border border-border bg-card px-4 py-3"
+              className="rounded-xl border border-border bg-card px-4 py-3"
             >
-              <div>
+              <div className="flex items-start justify-between">
                 <p className="text-sm font-medium text-text">{formatDate(entry.cookedAt)}</p>
-                {entry.notes && (
-                  <p className="mt-0.5 text-xs text-muted">{entry.notes}</p>
+                {editingId !== entry.id && (
+                  <div className="ml-4 flex flex-shrink-0 items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => startEdit(entry)}
+                      className="text-xs text-muted transition-colors hover:text-text"
+                    >
+                      {entry.notes ? "Edit" : "Add note"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteEntry(entry.id)}
+                      className="text-xs text-muted transition-colors hover:text-destructive"
+                    >
+                      Delete
+                    </button>
+                  </div>
                 )}
               </div>
-              <button
-                type="button"
-                onClick={() => deleteEntry(entry.id)}
-                className="ml-4 flex-shrink-0 text-xs text-muted transition-colors hover:text-destructive"
-              >
-                Delete
-              </button>
+
+              {editingId === entry.id ? (
+                <div className="mt-2 space-y-2">
+                  <textarea
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    placeholder="How did it go? Any tweaks?"
+                    rows={2}
+                    autoFocus
+                    className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20 resize-none"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      type="button"
+                      onClick={() => saveEdit(entry.id)}
+                      disabled={savingEdit}
+                      className="text-xs py-1 px-3"
+                    >
+                      {savingEdit ? "Saving…" : "Save"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={cancelEdit}
+                      disabled={savingEdit}
+                      className="text-xs py-1 px-3"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                entry.notes && <p className="mt-0.5 text-xs text-muted">{entry.notes}</p>
+              )}
             </li>
           ))}
         </ul>

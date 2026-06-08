@@ -17,6 +17,7 @@ export type MetadataSuggestion = {
   prepTimeMinutes: number | null;
   cookTimeMinutes: number | null;
   flavorProfile: string | null;
+  description: string | null;
 };
 
 /**
@@ -54,7 +55,8 @@ Return ONLY a JSON object with exactly these fields (use null only if you truly 
   "complexity": "EASY, MEDIUM, or HARD based on technique and number of steps",
   "prepTimeMinutes": estimated prep time as a whole number,
   "cookTimeMinutes": estimated cook time as a whole number,
-  "flavorProfile": "2-4 comma-separated flavor descriptors, e.g. savory, rich, spicy, tangy, umami"
+  "flavorProfile": "2-4 comma-separated flavor descriptors, e.g. savory, rich, spicy, tangy, umami",
+  "description": "an appetizing 2-3 sentence description of the dish: name the main ingredients, cooking technique, flavor, and when you'd serve it. Write naturally, as if describing it to someone deciding what to cook tonight."
 }
 
 Recipe title: ${title}
