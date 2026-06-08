@@ -12,6 +12,7 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:seed": "tsx prisma/seed.ts",
+    "migrate:v1": "tsx --env-file=.env.local scripts/migrate-from-v1.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

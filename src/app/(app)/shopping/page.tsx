@@ -594,17 +594,21 @@ export default function ShoppingListPage() {
   async function handleClearChecked() {
     const checkedIds = items.filter((i) => i.isChecked).map((i) => i.id);
     if (checkedIds.length === 0) return;
-    // Optimistic update
-    setItems((prev) => prev.map((i) => (i.isChecked ? { ...i, isChecked: false } : i)));
+    const snapshot = items;
+    // Optimistic: remove the checked items from the list entirely.
+    // They should disappear here and revert to "Have It" (not-in-list) on recipe pages.
+    setItems((prev) => prev.filter((i) => !i.isChecked));
+    setPriceRows((prev) => {
+      const next = { ...prev };
+      for (const id of checkedIds) delete next[id];
+      return next;
+    });
     try {
       await Promise.all(
-        checkedIds.map((id) => fetch(`/api/shopping/items/${id}`, { method: "PATCH" })),
+        checkedIds.map((id) => fetch(`/api/shopping/items/${id}`, { method: "DELETE" })),
       );
     } catch {
-      // Roll back on failure
-      setItems((prev) =>
-        prev.map((i) => (checkedIds.includes(i.id) ? { ...i, isChecked: true } : i)),
-      );
+      setItems(snapshot);
     }
   }
 

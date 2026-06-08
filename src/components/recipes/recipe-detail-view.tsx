@@ -440,6 +440,10 @@ function ShoppingListMode({
   // so an ingredient counts as "on the list" by either match.
   const nameKey = (name: string) => `n:${name.trim().toLowerCase()}`;
   const [needIt, setNeedIt] = useState<Map<string, string>>(new Map());
+  // checkedSet holds the shopping item ids that are checked (bought) on the
+  // Shopping List page. Checked items remain in needIt (still in the list DB row)
+  // but should appear in "Have It" here, mirroring the Shopping List's state.
+  const [checkedSet, setCheckedSet] = useState<Set<string>>(new Set());
   const [loadingState, setLoadingState] = useState<"loading" | "ready" | "error">("loading");
   const [toggling, setToggling] = useState<Set<string>>(new Set());
 
@@ -466,11 +470,14 @@ function ShoppingListMode({
         // id. Name matching keeps the recipe tab in sync even when a past recipe
         // edit nulled the ingredientId on existing shopping items.
         const map = new Map<string, string>();
-        for (const item of json.data.items as { id: string; ingredientId: string | null; name: string }[]) {
+        const checked = new Set<string>();
+        for (const item of json.data.items as { id: string; ingredientId: string | null; name: string; isChecked: boolean }[]) {
           if (item.ingredientId) map.set(item.ingredientId, item.id);
           map.set(nameKey(item.name), item.id);
+          if (item.isChecked) checked.add(item.id);
         }
         setNeedIt(map);
+        setCheckedSet(checked);
         setLoadingState("ready");
       } catch {
         if (!cancelled) setLoadingState("error");
@@ -494,14 +501,35 @@ function ShoppingListMode({
     const existingId = needIt.get(ingredientId) ?? needIt.get(nameKey(name));
     try {
       if (existingId) {
-        const res = await fetch(`/api/shopping/items/${existingId}`, { method: "DELETE" });
-        if (res.ok) setNeedIt((prev) => {
-          const m = new Map(prev);
-          m.delete(ingredientId);
-          m.delete(nameKey(name));
-          return m;
-        });
+        if (checkedSet.has(existingId)) {
+          // Item is in the list but marked as bought on the Shopping List page.
+          // Clicking it here means "I actually still need this" → uncheck it
+          // (PATCH with no body toggles isChecked), moving it back to Need to Buy.
+          const res = await fetch(`/api/shopping/items/${existingId}`, { method: "PATCH" });
+          if (res.ok) {
+            setCheckedSet((prev) => {
+              const s = new Set(prev);
+              s.delete(existingId);
+              return s;
+            });
+          }
+        } else {
+          // Item is in the list and unchecked. Clicking means "I don't need this
+          // anymore" → delete it entirely, moving it to Have It.
+          const res = await fetch(`/api/shopping/items/${existingId}`, { method: "DELETE" });
+          if (res.ok) {
+            setNeedIt((prev) => {
+              const m = new Map(prev);
+              m.delete(ingredientId);
+              m.delete(nameKey(name));
+              return m;
+            });
+            // Also remove from checkedSet in case it was there (defensive).
+            setCheckedSet((prev) => { const s = new Set(prev); s.delete(existingId); return s; });
+          }
+        }
       } else {
+        // Not in list. Add it.
         const res = await fetch("/api/shopping/items", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -522,6 +550,7 @@ function ShoppingListMode({
             m.set(nameKey(name), json.data.id);
             return m;
           });
+          // New items start unchecked — no change to checkedSet.
         }
       }
     } finally {
@@ -534,8 +563,12 @@ function ShoppingListMode({
   }
 
   const inList    = (i: { id: string; name: string }) => needIt.has(i.id) || needIt.has(nameKey(i.name));
-  const needToBuy = allIngredients.filter(inList);
-  const haveIt    = allIngredients.filter((i) => !inList(i));
+  const getShopId = (i: { id: string; name: string }) => needIt.get(i.id) ?? needIt.get(nameKey(i.name));
+  // isGotIt: item is in the list but already checked off on the Shopping List page.
+  const isGotIt   = (i: { id: string; name: string }) => { const sid = getShopId(i); return !!sid && checkedSet.has(sid); };
+  // "Need to Buy" = in list AND not yet checked. "Have It" = not in list OR already got it.
+  const needToBuy = allIngredients.filter((i) => inList(i) && !isGotIt(i));
+  const haveIt    = allIngredients.filter((i) => !inList(i) || isGotIt(i));
   const isScaled  = servings !== baseServings;
 
   return (
@@ -628,21 +661,36 @@ function ShoppingListMode({
             Have It · {haveIt.length}
           </p>
           <ul>
-            {haveIt.map((item) => (
-              <li key={item.id}>
-                <button
-                  type="button"
-                  disabled={toggling.has(item.id)}
-                  onClick={() => toggle(item.id, item.name, item.quantity, item.unit)}
-                  className="flex w-full items-center gap-3 border-b border-border/50 px-1 py-3 text-left transition-colors last:border-b-0 hover:bg-card-hover disabled:opacity-60"
-                >
-                  {/* Empty checkbox */}
-                  <span className="h-5 w-5 shrink-0 rounded border-2 border-border/60" />
-                  <span className="flex-1 text-sm text-text/70">{item.name}</span>
-                  <QtyUnit quantity={scaledQty(item.quantity) !== null ? String(scaledQty(item.quantity)) : null} unit={item.unit} className="text-sm text-text/40" />
-                </button>
-              </li>
-            ))}
+            {haveIt.map((item) => {
+              const gotIt = isGotIt(item);
+              return (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    disabled={toggling.has(item.id)}
+                    onClick={() => toggle(item.id, item.name, item.quantity, item.unit)}
+                    className="flex w-full items-center gap-3 border-b border-border/50 px-1 py-3 text-left transition-colors last:border-b-0 hover:bg-card-hover disabled:opacity-60"
+                  >
+                    {gotIt ? (
+                      // Checked on Shopping List page — dimmed checkmark.
+                      // Clicking restores it to "Need to Buy".
+                      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded border-2 border-highlight/40 bg-highlight/15">
+                        <svg className="h-3 w-3 text-highlight/60" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M2 6l3 3 5-5" />
+                        </svg>
+                      </span>
+                    ) : (
+                      // Not in list — empty checkbox. Clicking adds to list.
+                      <span className="h-5 w-5 shrink-0 rounded border-2 border-border/60" />
+                    )}
+                    <span className={cn("flex-1 text-sm", gotIt ? "text-text/40 line-through" : "text-text/70")}>
+                      {item.name}
+                    </span>
+                    <QtyUnit quantity={scaledQty(item.quantity) !== null ? String(scaledQty(item.quantity)) : null} unit={item.unit} className={cn("text-sm", gotIt ? "text-text/30" : "text-text/40")} />
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         </div>
       )}
