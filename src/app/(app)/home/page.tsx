@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { HomeRecipeCard } from "@/components/home/home-recipe-card";
 import { HeroSearch } from "@/components/home/hero-search";
+import { HeroRecipeBackdrop, type JournalRecipe } from "@/components/home/hero-recipe-backdrop";
 import { Logo } from "@/components/ui/logo";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
@@ -25,6 +26,58 @@ function formatLastCooked(date: Date | null): string {
   if (diffDays === 1) return "Yesterday";
   if (diffDays < 7) return `${diffDays} days ago`;
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+/**
+ * Pull a shuffled set of the user's own recipes to fill the hero backdrop —
+ * title + ingredient names only (no quantities/units). Re-shuffles on each page
+ * load. Returns null when the user has 8 or fewer recipes, so the backdrop
+ * falls back to its seeded default cards.
+ */
+async function getBackdropRecipes(userId: string): Promise<JournalRecipe[] | null> {
+  const count = await prisma.recipe.count({ where: { userId } });
+  if (count <= 8) return null;
+
+  // Random over-fetch, so we still land 8 cards even if a few have no ingredients.
+  const picked = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id FROM recipes WHERE user_id = ${userId} ORDER BY random() LIMIT 12
+  `;
+  const ids = picked.map((p) => p.id);
+  if (ids.length < 8) return null;
+
+  const recipes = await prisma.recipe.findMany({
+    where: { id: { in: ids } },
+    select: {
+      title: true,
+      complexity: true,
+      servings: true,
+      ingredientGroups: {
+        orderBy: { sortOrder: "asc" },
+        select: { ingredients: { orderBy: { sortOrder: "asc" }, select: { name: true } } },
+      },
+    },
+  });
+
+  const mapped: JournalRecipe[] = recipes
+    .map((r) => ({
+      title: r.title,
+      ingredients: r.ingredientGroups
+        .flatMap((g) => g.ingredients.map((i) => i.name))
+        .filter(Boolean)
+        .slice(0, 6),
+      complexity: r.complexity,
+      servings: r.servings,
+    }))
+    .filter((r) => r.ingredients.length > 0);
+
+  if (mapped.length < 8) return null;
+
+  // Fisher–Yates shuffle so card positions vary too, not just which recipes.
+  for (let i = mapped.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [mapped[i], mapped[j]] = [mapped[j], mapped[i]];
+  }
+  return mapped.slice(0, 8);
 }
 
 // ─── Sub-components ─────────────────────────────────────────────────────────
@@ -153,6 +206,7 @@ export default async function HomePage() {
     recentlyAdded,
     favorites,
     mostCooked,
+    backdropRecipes,
   ] = await Promise.all([
     prisma.recipe.count({ where: { userId } }),
     prisma.recipe.count({ where: { userId, isFavorite: true } }),
@@ -179,29 +233,36 @@ export default async function HomePage() {
       take: 12,
       select,
     }),
+    getBackdropRecipes(userId),
   ]);
 
   return (
     <div>
       {/* ── Hero (stats + welcome centered together) ──────────────────── */}
-      <section className="flex min-h-[calc(100vh-5rem)] flex-col items-center justify-center py-12 text-center">
-        {/* Stats bar sits directly above the welcome text */}
-        <StatsBar
-          totalRecipes={totalRecipes}
-          totalFavorites={totalFavorites}
-          lastCookedAt={lastCookLog?.cookedAt ?? null}
-        />
+      <section className="relative flex min-h-[calc(100vh-5rem)] flex-col items-center justify-center overflow-hidden py-12 text-center">
+        {/* Ambient recipe-journal collage, masked away from the center */}
+        <HeroRecipeBackdrop recipes={backdropRecipes ?? undefined} />
 
-        <p className="mt-8 font-brand text-6xl font-normal leading-tight text-text sm:text-7xl">
-          Welcome Back to
-        </p>
-        <Logo className="mt-2 text-6xl sm:text-7xl" variant="page" />
+        {/* Foreground content sits above the backdrop */}
+        <div className="relative z-10 flex flex-col items-center">
+          {/* Stats bar sits directly above the welcome text */}
+          <StatsBar
+            totalRecipes={totalRecipes}
+            totalFavorites={totalFavorites}
+            lastCookedAt={lastCookLog?.cookedAt ?? null}
+          />
 
-        <p className="mt-10 text-xl font-semibold text-text">
-          What are we cooking today, {firstName}?
-        </p>
+          <p className="mt-8 font-brand text-6xl font-normal leading-tight text-text sm:text-7xl">
+            Welcome Back to
+          </p>
+          <Logo className="mt-2 text-6xl sm:text-7xl" variant="page" />
 
-        <HeroSearch />
+          <p className="mt-10 text-xl font-semibold text-text">
+            What are we cooking today, {firstName}?
+          </p>
+
+          <HeroSearch />
+        </div>
       </section>
 
       {/* ── Gallery sections ──────────────────────────────────────────── */}

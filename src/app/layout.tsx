@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Rowdies } from "next/font/google";
+import { Geist, Geist_Mono, Rowdies, Caveat, Patrick_Hand } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -16,6 +16,20 @@ const rowdies = Rowdies({
   variable: "--font-rowdies",
   subsets: ["latin"],
   weight: ["300", "400", "700"],
+});
+
+// Handwriting fonts for the recipe-journal hero backdrop.
+// Caveat = flowing script for titles; Patrick Hand = neat print for body lines.
+const caveat = Caveat({
+  variable: "--font-caveat",
+  subsets: ["latin"],
+  weight: ["400", "600", "700"],
+});
+
+const patrickHand = Patrick_Hand({
+  variable: "--font-patrick-hand",
+  subsets: ["latin"],
+  weight: ["400"],
 });
 
 export const metadata: Metadata = {
@@ -46,7 +60,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${rowdies.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${rowdies.variable} ${caveat.variable} ${patrickHand.variable} antialiased`}
       >
         {children}
       </body>
