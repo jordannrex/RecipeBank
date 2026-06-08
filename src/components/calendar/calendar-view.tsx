@@ -457,7 +457,7 @@ function MonthEventBlock({
     return (
       <div
         className={cn(
-          "group relative flex-1 flex flex-col rounded overflow-hidden cursor-pointer min-h-0 transition-opacity hover:opacity-90",
+          "group relative flex flex-col rounded overflow-hidden cursor-pointer transition-opacity hover:opacity-90",
           isSolid ? "bg-highlight" : "border border-highlight/40 bg-highlight/10",
         )}
         onClick={() => onView(event)}
@@ -467,15 +467,16 @@ function MonthEventBlock({
         aria-label={`View details for ${event.recipeTitle}`}
       >
         {event.recipePhotoUrl ? (
+          // Fixed thumbnail height so a tall photo can't stretch the cell/row.
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={event.recipePhotoUrl}
             alt=""
-            className="w-full flex-1 object-cover min-h-0"
+            className="h-14 w-full flex-shrink-0 object-cover"
           />
         ) : (
           <div className={cn(
-            "flex-1 min-h-0",
+            "h-14 flex-shrink-0",
             isSolid ? "bg-white/10" : "bg-highlight/5",
           )} />
         )}
@@ -874,11 +875,8 @@ function MonthCell({
           </button>
         )}
       </div>
-      {/* Events area: flex-1 so a single expanded card can fill remaining cell height */}
-      <div className={cn(
-        "flex flex-col gap-0.5 min-h-0",
-        isCurrentMonth && events.length === 1 ? "flex-1" : "",
-      )}>
+      {/* Events area: compact, fixed-height thumbnails so cells stay uniform */}
+      <div className="flex flex-col gap-0.5 min-h-0">
         {shown.map((ev) => (
           <MonthEventBlock
             key={ev.id}
