@@ -6,12 +6,13 @@
  *  2. Pinterest → follow the source link if present, then continue as generic
  *  3. JSON-LD (schema.org/Recipe) — most structured, preferred
  *  4. HTML scraping with cheerio — common recipe-site patterns
- *  5. AI extraction fallback — GPT-4o-mini on stripped page text
+ *  5. AI extraction fallback — Gemini (gemini-2.5-flash) on stripped page text
  *  6. AI metadata enrichment — fills cuisine, dishType, complexity, times
  */
 
 import * as cheerio from "cheerio";
 import { getGemini } from "@/lib/gemini";
+import { assertPublicUrl } from "@/lib/url-guard";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -76,18 +77,40 @@ function detectPlatform(url: string): Platform {
 async function fetchHtml(url: string, timeoutMs = 15_000): Promise<string> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const headers = {
+    "User-Agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+  };
+
   try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-      },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.text();
+    // SSRF guard: validate the URL (and every redirect hop) against private,
+    // loopback, link-local, and metadata addresses before fetching. Redirects
+    // are followed manually so each new location is re-validated.
+    let current = (await assertPublicUrl(url)).toString();
+
+    for (let hop = 0; hop < 5; hop++) {
+      const res = await fetch(current, {
+        signal: controller.signal,
+        headers,
+        redirect: "manual",
+      });
+
+      if (res.status >= 300 && res.status < 400) {
+        const location = res.headers.get("location");
+        if (!location) throw new Error(`HTTP ${res.status} with no redirect target`);
+        // Resolve relative redirects against the current URL, then re-validate.
+        const next = new URL(location, current);
+        current = (await assertPublicUrl(next.toString())).toString();
+        continue;
+      }
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.text();
+    }
+
+    throw new Error("Too many redirects");
   } finally {
     clearTimeout(timer);
   }
@@ -324,7 +347,7 @@ function extractFromHtml(html: string, baseUrl: string): Partial<ImportedRecipe>
 }
 
 // ---------------------------------------------------------------------------
-// AI extraction fallback (GPT-4o-mini)
+// AI extraction fallback (Gemini gemini-2.5-flash)
 // ---------------------------------------------------------------------------
 
 /** Strip HTML to ~plain text, capped to keep tokens manageable. */

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { ingredientGroupSchema, stepSchema } from "@/lib/recipe-schemas";
+import { ingredientGroupSchema, stepSchema, MAX_IMAGE_DATA_URL_LENGTH } from "@/lib/recipe-schemas";
 import { getOwnedRecipe } from "@/lib/recipe-helpers";
 import { embedRecipeInBackground } from "@/lib/embeddings";
 import type { Recipe } from "@prisma/client";
@@ -13,12 +13,12 @@ const recipeUpdateSchema = z.object({
   servings: z.number().int().min(1).optional(),
   prepTimeMinutes: z.number().int().min(0).nullable().optional(),
   cookTimeMinutes: z.number().int().min(0).nullable().optional(),
-  complexity: z.enum(["EASY", "MEDIUM", "HARD"]).optional(),
+  complexity: z.enum(["EASY", "MEDIUM", "HARD", "NONE"]).optional(),
   dishType: z.string().max(100).nullable().optional(),
   cuisine: z.string().max(100).nullable().optional(),
   flavorProfile: z.string().max(500).nullable().optional(),
   isFavorite: z.boolean().optional(),
-  photoUrl: z.string().nullable().optional(),
+  photoUrl: z.string().max(MAX_IMAGE_DATA_URL_LENGTH, "Image is too large — please use a smaller photo").nullable().optional(),
   sourceUrl: z.string().url().nullable().optional(),
   // When provided, replaces all existing groups + their ingredients.
   ingredientGroups: z.array(ingredientGroupSchema).optional(),

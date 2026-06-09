@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-type Complexity = "EASY" | "MEDIUM" | "HARD";
+type Complexity = "EASY" | "MEDIUM" | "HARD" | "NONE";
 
 type HomeRecipeCardProps = {
   id: string;
@@ -10,7 +10,7 @@ type HomeRecipeCardProps = {
   cuisine: string | null;
 };
 
-const complexityColor: Record<Complexity, string> = {
+const complexityColor: Record<Exclude<Complexity, "NONE">, string> = {
   EASY: "#22c55e",
   MEDIUM: "#f59e0b",
   HARD: "#ef4444",
@@ -54,12 +54,14 @@ export function HomeRecipeCard({
           </div>
         )}
 
-        {/* Complexity dot — bottom-right corner */}
-        <span
-          className="absolute bottom-2 right-2 h-2.5 w-2.5 rounded-full ring-2 ring-card"
-          style={{ backgroundColor: complexityColor[complexity] }}
-          aria-label={complexity.toLowerCase()}
-        />
+        {/* Complexity dot — bottom-right corner (hidden when unset) */}
+        {complexity !== "NONE" && (
+          <span
+            className="absolute bottom-2 right-2 h-2.5 w-2.5 rounded-full ring-2 ring-card"
+            style={{ backgroundColor: complexityColor[complexity] }}
+            aria-label={complexity.toLowerCase()}
+          />
+        )}
       </div>
 
       {/* Title */}

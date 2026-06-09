@@ -22,7 +22,7 @@ export type MetadataSuggestion = {
 
 /**
  * POST /api/recipes/suggest-metadata
- * Uses Gemini 1.5 Flash to infer metadata from a partial recipe.
+ * Uses Gemini (gemini-2.5-flash) to infer metadata from a partial recipe.
  * Only called client-side when the user clicks "Suggest Metadata".
  */
 export async function POST(request: Request) {

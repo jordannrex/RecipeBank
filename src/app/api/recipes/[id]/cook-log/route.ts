@@ -64,6 +64,14 @@ export async function POST(
     return apiError(parsed.error.issues[0]?.message ?? "Invalid input", 400);
   }
 
+  // A cook log records something that already happened — reject future dates.
+  // Compare as UTC date strings to match how cookedAt (@db.Date) is stored and
+  // how the client's date picker computes its `max`.
+  const todayStr = new Date().toISOString().slice(0, 10);
+  if (parsed.data.cookedAt && parsed.data.cookedAt > todayStr) {
+    return apiError("Cook date can't be in the future", 400);
+  }
+
   const cookedAt = parsed.data.cookedAt
     ? new Date(parsed.data.cookedAt)
     : new Date();

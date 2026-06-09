@@ -24,7 +24,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { calcIngredientCost, decimalToFraction } from "@/lib/units";
+import { calcIngredientCost } from "@/lib/units";
 import { QtyUnit } from "@/components/ui/fraction-display";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -57,12 +57,6 @@ function formatTime(min: number | null): string {
   const h = Math.floor(min / 60);
   const m = min % 60;
   return m ? `${h}h ${m}m` : `${h}h`;
-}
-
-function formatIngredient(name: string, quantity: string | null, unit: string | null, prep: string | null): string {
-  const q = quantity ? parseFloat(quantity) : null;
-  const parts = [q ? String(q) : null, unit || null, name, prep ? `(${prep})` : null];
-  return parts.filter(Boolean).join(" ");
 }
 
 /** Resize an image file to at most maxDim × maxDim, returns a JPEG data URL. */
@@ -124,7 +118,7 @@ type EditState = {
   sourceUrl: string;
   cuisine: string;
   dishType: string;
-  complexity: "EASY" | "MEDIUM" | "HARD";
+  complexity: "EASY" | "MEDIUM" | "HARD" | "NONE";
   prepTimeMinutes: string;
   cookTimeMinutes: string;
   servings: string;
@@ -303,13 +297,15 @@ function ViewMode({
             </button>
           )}
         </span>
-        <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-muted">
-          <span
-            className="inline-block h-2 w-2 rounded-full flex-shrink-0"
-            style={{ backgroundColor: complexityDot[recipe.complexity] ?? "#71717a" }}
-          />
-          {complexityLabel[recipe.complexity] ?? recipe.complexity}
-        </span>
+        {recipe.complexity !== "NONE" && (
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-1 text-xs text-muted">
+            <span
+              className="inline-block h-2 w-2 rounded-full flex-shrink-0"
+              style={{ backgroundColor: complexityDot[recipe.complexity] ?? "#71717a" }}
+            />
+            {complexityLabel[recipe.complexity] ?? recipe.complexity}
+          </span>
+        )}
         {recipe.cuisine && <Badge className="text-xs px-2.5 py-1">{recipe.cuisine}</Badge>}
         {recipe.dishType && <Badge className="text-xs px-2.5 py-1">{recipe.dishType}</Badge>}
         {recipe.cookCount > 0 && (
@@ -404,12 +400,6 @@ function ViewMode({
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────
-
-function fmtQtyUnit(quantity: string | null, unit: string | null): string {
-  const n = quantity ? parseFloat(quantity) : null;
-  const q = n != null && !isNaN(n) ? decimalToFraction(n) : null;
-  return [q, unit].filter(Boolean).join(" ");
-}
 
 /**
  * Multiply a DB quantity string by a scale factor.
@@ -1054,7 +1044,6 @@ function SortableIngredientRow({
 }
 
 function SortableGroup({
-  gi,
   group,
   showHeader,
   selectedIngIds,
@@ -1379,12 +1368,13 @@ function EditMode({
 
       // Only fill fields the user has left empty — already-filled fields stay
       // untouched (and gray). Filled-in fields turn brand-red to flag that the
-      // value came from the AI. Complexity is a required field that always has
-      // a value on an existing recipe, so it is never auto-suggested here.
+      // value came from the AI. Complexity counts as "empty" only when it is
+      // NONE (the unset default); an existing EASY/MEDIUM/HARD is left alone.
       const newSuggested = new Set<string>();
       const nextForm = { ...form };
       if (s.cuisine        && !form.cuisine.trim())         { nextForm.cuisine = s.cuisine;                        newSuggested.add("cuisine"); }
       if (s.dishType       && !form.dishType.trim())        { nextForm.dishType = s.dishType;                      newSuggested.add("dishType"); }
+      if (s.complexity     && form.complexity === "NONE")   { nextForm.complexity = s.complexity;                  newSuggested.add("complexity"); }
       if (s.prepTimeMinutes && !form.prepTimeMinutes.trim()) { nextForm.prepTimeMinutes = String(s.prepTimeMinutes); newSuggested.add("prepTimeMinutes"); }
       if (s.cookTimeMinutes && !form.cookTimeMinutes.trim()) { nextForm.cookTimeMinutes = String(s.cookTimeMinutes); newSuggested.add("cookTimeMinutes"); }
       if (s.description    && !form.description.trim())     { nextForm.description = s.description;                newSuggested.add("description"); }
@@ -1619,6 +1609,7 @@ function EditMode({
               suggestedFields.has("complexity") ? "text-brand-red" : "text-text",
             )}
           >
+            <option value="NONE">None</option>
             <option value="EASY">Easy</option>
             <option value="MEDIUM">Medium</option>
             <option value="HARD">Hard</option>

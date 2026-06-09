@@ -154,13 +154,15 @@ export function RecipeCard({ recipe, onFavoriteToggle, onPreview }: RecipeCardPr
             {recipe.dishType && (
               <Badge className="text-[10px] px-1.5 py-0">{recipe.dishType}</Badge>
             )}
-            <span className="inline-flex items-center gap-1 text-[10px] text-muted">
-              <span
-                className="inline-block h-1.5 w-1.5 rounded-full flex-shrink-0"
-                style={{ backgroundColor: complexityDot[recipe.complexity] ?? "#71717a" }}
-              />
-              {complexityLabel[recipe.complexity] ?? recipe.complexity}
-            </span>
+            {recipe.complexity !== "NONE" && (
+              <span className="inline-flex items-center gap-1 text-[10px] text-muted">
+                <span
+                  className="inline-block h-1.5 w-1.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: complexityDot[recipe.complexity] ?? "#71717a" }}
+                />
+                {complexityLabel[recipe.complexity] ?? recipe.complexity}
+              </span>
+            )}
           </div>
 
           {time && (

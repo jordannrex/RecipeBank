@@ -8,7 +8,7 @@ generator client {
 
 datasource db {
   provider   = "postgresql"
-  extensions = [vector]
+  extensions = [vector, pg_trgm]
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +97,7 @@ enum Complexity {
   EASY
   MEDIUM
   HARD
+  NONE
 }
 
 model Recipe {
@@ -110,14 +111,14 @@ model Recipe {
   currentServings Int      @default(4) @map("current_servings")
   prepTimeMinutes  Int?    @map("prep_time_minutes")
   cookTimeMinutes  Int?    @map("cook_time_minutes")
-  complexity    Complexity @default(MEDIUM)
+  complexity    Complexity @default(NONE)
   dishType      String?    @map("dish_type")
   cuisine       String?
   flavorProfile String?    @map("flavor_profile") @db.Text
   isFavorite    Boolean    @default(false) @map("is_favorite")
   cookCount     Int        @default(0) @map("cook_count")
   lastCookedAt  DateTime?  @map("last_cooked_at")
-  // Gemini text-embedding-004 produces 768-dimensional vectors
+  // Gemini gemini-embedding-001 produces 768-dimensional vectors
   embedding     Unsupported("vector(768)")?
   createdAt     DateTime   @default(now()) @map("created_at")
   updatedAt     DateTime   @updatedAt @map("updated_at")

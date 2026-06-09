@@ -89,7 +89,7 @@ export function AddRecipeModal({ open, onClose }: Props) {
   const [photoLoading, setPhotoLoading] = useState(false);
   const [cuisine, setCuisine] = useState("");
   const [dishType, setDishType] = useState("");
-  const [complexity, setComplexity] = useState<"EASY" | "MEDIUM" | "HARD">("MEDIUM");
+  const [complexity, setComplexity] = useState<"EASY" | "MEDIUM" | "HARD" | "NONE">("NONE");
   const [prepTime, setPrepTime] = useState("");
   const [cookTime, setCookTime] = useState("");
   const [servings, setServings] = useState("4");
@@ -154,7 +154,7 @@ export function AddRecipeModal({ open, onClose }: Props) {
       const newSuggested = new Set<string>();
       if (data.cuisine    && !cuisine.trim())  { setCuisine(data.cuisine);                       newSuggested.add("cuisine"); }
       if (data.dishType   && !dishType.trim()) { setDishType(data.dishType);                     newSuggested.add("dishType"); }
-      if (data.complexity && complexity === "MEDIUM") { setComplexity(data.complexity);           newSuggested.add("complexity"); }
+      if (data.complexity && complexity === "NONE") { setComplexity(data.complexity);             newSuggested.add("complexity"); }
       if (data.prepTimeMinutes && !prepTime.trim()) { setPrepTime(String(data.prepTimeMinutes)); newSuggested.add("prepTimeMinutes"); }
       if (data.cookTimeMinutes && !cookTime.trim()) { setCookTime(String(data.cookTimeMinutes)); newSuggested.add("cookTimeMinutes"); }
       if (data.description && !description.trim()) { setDescription(data.description); resizeAllTextareas(); newSuggested.add("description"); }
@@ -166,7 +166,7 @@ export function AddRecipeModal({ open, onClose }: Props) {
 
   function reset() {
     setTitle(""); setDescription(""); setCuisine(""); setDishType("");
-    setComplexity("MEDIUM"); setPrepTime(""); setCookTime(""); setServings("4");
+    setComplexity("NONE"); setPrepTime(""); setCookTime(""); setServings("4");
     setGroups([emptyGroup()]); setSteps([emptyStep()]);
     setPhotoUrl(null); setPhotoLoading(false);
     setError(null);
@@ -219,7 +219,7 @@ export function AddRecipeModal({ open, onClose }: Props) {
     setPhotoLoading(false);
     setCuisine(imported.cuisine ?? "");
     setDishType(imported.dishType ?? "");
-    setComplexity(imported.complexity ?? "MEDIUM");
+    setComplexity(imported.complexity ?? "NONE");
     setPrepTime(imported.prepTimeMinutes?.toString() ?? "");
     setCookTime(imported.cookTimeMinutes?.toString() ?? "");
     setServings(imported.servings?.toString() ?? "4");
@@ -715,6 +715,7 @@ export function AddRecipeModal({ open, onClose }: Props) {
                 suggestedFields.has("complexity") ? "text-brand-red" : "text-text",
               )}
             >
+              <option value="NONE">None</option>
               <option value="EASY">Easy</option>
               <option value="MEDIUM">Medium</option>
               <option value="HARD">Hard</option>

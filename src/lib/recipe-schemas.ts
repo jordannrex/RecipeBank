@@ -21,15 +21,20 @@ export const stepSchema = z.object({
   sectionHeader: z.string().max(200).nullable().optional(),
 });
 
+// Cap inline image data URLs (~3 MB of characters) so an oversized base64
+// payload can't bloat the database row. Client-side resizing keeps real
+// uploads far under this; the cap is a server-side safety net.
+export const MAX_IMAGE_DATA_URL_LENGTH = 3_000_000;
+
 export const recipeCreateSchema = z.object({
   title: z.string().min(1, "Title is required").max(500),
   description: z.string().nullable().optional(),
-  photoUrl: z.string().nullable().optional(),
+  photoUrl: z.string().max(MAX_IMAGE_DATA_URL_LENGTH, "Image is too large — please use a smaller photo").nullable().optional(),
   sourceUrl: z.string().url().nullable().optional(),
   servings: z.number().int().min(1).default(4),
   prepTimeMinutes: z.number().int().min(0).nullable().optional(),
   cookTimeMinutes: z.number().int().min(0).nullable().optional(),
-  complexity: z.enum(["EASY", "MEDIUM", "HARD"]).default("MEDIUM"),
+  complexity: z.enum(["EASY", "MEDIUM", "HARD", "NONE"]).default("NONE"),
   dishType: z.string().max(100).nullable().optional(),
   cuisine: z.string().max(100).nullable().optional(),
   flavorProfile: z.string().max(500).nullable().optional(),
