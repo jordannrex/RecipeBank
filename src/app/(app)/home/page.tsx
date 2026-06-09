@@ -12,7 +12,7 @@ type MinRecipe = {
   id: string;
   title: string;
   photoUrl: string | null;
-  complexity: "EASY" | "MEDIUM" | "HARD";
+  complexity: "EASY" | "MEDIUM" | "HARD" | "NONE";
   cuisine: string | null;
 };
 

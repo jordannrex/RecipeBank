@@ -3,7 +3,7 @@ import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { recipeCreateSchema } from "@/lib/recipe-schemas";
-import { buildEmbeddingText, generateEmbedding, embedRecipeInBackground, searchRecipesByEmbedding } from "@/lib/embeddings";
+import { generateEmbedding, embedRecipeInBackground, searchRecipesByEmbedding } from "@/lib/embeddings";
 import type { RecipeListItem, RecipeListResponse } from "@/types/recipe";
 
 // ---------------------------------------------------------------------------
@@ -25,7 +25,7 @@ function toListItem(r: {
   cuisine: string | null;
   dishType: string | null;
   isFavorite: boolean;
-  complexity: "EASY" | "MEDIUM" | "HARD";
+  complexity: "EASY" | "MEDIUM" | "HARD" | "NONE";
   prepTimeMinutes: number | null;
   cookTimeMinutes: number | null;
   servings: number;
@@ -87,22 +87,44 @@ export async function GET(request: Request) {
     try {
       const queryEmbedding = await generateEmbedding(q, true);
       if (queryEmbedding) {
-        const matches = await searchRecipesByEmbedding(auth.user.id, queryEmbedding, limit);
+        // Pull a generous candidate set so that applying the active filters
+        // below still leaves enough results to fill a page.
+        const matches = await searchRecipesByEmbedding(
+          auth.user.id,
+          queryEmbedding,
+          Math.max(limit * 3, 30),
+        );
         if (matches.length > 0) {
           const ids = matches.map((m) => m.id);
+          // Apply the same favorites/cuisine/dishType/complexity filters the
+          // standard search uses, so AI search + filters behave consistently.
           const rows = await prisma.recipe.findMany({
-            where: { id: { in: ids }, userId: auth.user.id },
+            where: {
+              id: { in: ids },
+              userId: auth.user.id,
+              ...(favorites  ? { isFavorite: true } : {}),
+              ...(cuisine    ? { cuisine:  { contains: cuisine,  mode: "insensitive" as const } } : {}),
+              ...(dishType   ? { dishType: { contains: dishType, mode: "insensitive" as const } } : {}),
+              ...(complexity ? { complexity } : {}),
+            },
             select: recipeListSelect,
           });
           const rowMap = new Map(rows.map((r) => [r.id, r]));
-          const ordered = ids.map((id) => rowMap.get(id)).filter(Boolean) as typeof rows;
-          const data: RecipeListResponse = {
-            recipes: ordered.map(toListItem),
-            total: ordered.length,
-            page: 1,
-            limit,
-          };
-          return apiSuccess(data);
+          // Preserve similarity order, drop filtered-out rows, cap to the page size.
+          const ordered = ids
+            .map((id) => rowMap.get(id))
+            .filter(Boolean)
+            .slice(0, limit) as typeof rows;
+          if (ordered.length > 0) {
+            const data: RecipeListResponse = {
+              recipes: ordered.map(toListItem),
+              total: ordered.length,
+              page: 1,
+              limit,
+            };
+            return apiSuccess(data);
+          }
+          // Everything was filtered out — fall through to text search below.
         }
         // No confident semantic matches — fall through to text search below
       }

@@ -34,6 +34,13 @@ export async function withAuth(): Promise<AuthContext | null> {
     return null;
   }
 
+  // Account is past its deletion grace window — deny access until the purge
+  // job (npm run purge:deletions / the cron endpoint) removes it. During the
+  // grace period deletionScheduledAt is in the future, so cancellation still works.
+  if (user.deletionScheduledAt && user.deletionScheduledAt.getTime() <= Date.now()) {
+    return null;
+  }
+
   if (shouldRenewSession(session)) {
     await renewSession(session.id);
   }

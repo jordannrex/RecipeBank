@@ -14,7 +14,7 @@
  * Purely ambient: pointer-events-none, aria-hidden, sits behind the content.
  */
 
-type Complexity = "EASY" | "MEDIUM" | "HARD";
+type Complexity = "EASY" | "MEDIUM" | "HARD" | "NONE";
 
 export type JournalRecipe = {
   title: string;
@@ -90,7 +90,7 @@ function Checkbox({ label, checked }: { label: string; checked: boolean }) {
   );
 }
 
-const complexityLabel: Record<Complexity, string> = { EASY: "Easy", MEDIUM: "Medium", HARD: "Hard" };
+const complexityLabel: Record<Exclude<Complexity, "NONE">, string> = { EASY: "Easy", MEDIUM: "Medium", HARD: "Hard" };
 
 function JournalCard({ recipe, slot }: { recipe: JournalRecipe; slot: Slot }) {
   const ticked: Complexity = recipe.complexity ?? "MEDIUM";

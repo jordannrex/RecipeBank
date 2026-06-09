@@ -13,10 +13,12 @@ const avatarConfigSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("photo"),
-    url: z.string().refine(
-      (v) => v.startsWith("data:image/") || /^https?:\/\/.+/.test(v),
-      "Must be a valid URL or uploaded image",
-    ),
+    url: z.string()
+      .max(2_000_000, "Image is too large — please use a smaller photo")
+      .refine(
+        (v) => v.startsWith("data:image/") || /^https?:\/\/.+/.test(v),
+        "Must be a valid URL or uploaded image",
+      ),
   }),
 ]);
 

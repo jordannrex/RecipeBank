@@ -1,7 +1,10 @@
+import type { NextResponse } from "next/server";
 import { z } from "zod";
 import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
+import { setSessionCookie } from "@/lib/auth/cookies";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
+import { createUserSession, revokeAllUserSessions } from "@/lib/auth/sessions";
 import { passwordSchema } from "@/lib/auth/validation";
 import { prisma } from "@/lib/db";
 
@@ -49,5 +52,19 @@ export async function POST(request: Request) {
     data: { passwordHash },
   });
 
-  return apiSuccess({ ok: true });
+  // Security: a password change must invalidate every existing session so a
+  // stolen/old session can't survive it. We revoke them all, then mint a fresh
+  // session for THIS device (preserving its remember-me preference) so the
+  // user who just changed their password stays signed in here.
+  const current = await prisma.session.findUnique({
+    where: { id: auth.sessionId },
+    select: { rememberMe: true },
+  });
+  const rememberMe = current?.rememberMe ?? false;
+
+  await revokeAllUserSessions(auth.user.id);
+  const { token } = await createUserSession(auth.user.id, rememberMe);
+
+  const response = apiSuccess({ ok: true });
+  return setSessionCookie(response as NextResponse, token, rememberMe);
 }

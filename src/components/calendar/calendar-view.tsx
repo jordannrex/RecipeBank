@@ -1254,7 +1254,7 @@ export function CalendarView() {
     if (viewMode === "week") {
       const week = getWeekDates(anchorDate);
       const start = week[0]; const end = week[6];
-      const [sy, sm, sd] = start.split("-").map(Number);
+      const [, sm, sd] = start.split("-").map(Number);
       const [ey, em, ed] = end.split("-").map(Number);
       const startLabel = `${MONTH_NAMES[sm - 1].slice(0, 3)} ${sd}`;
       const endLabel   = sm === em
