@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { RecipeCard } from "@/components/recipes/recipe-card";
 import { RecipePreviewDrawer } from "@/components/recipes/recipe-preview-drawer";
@@ -19,10 +19,18 @@ export function RecipeGrid() {
 
   const [recipes, setRecipes] = useState<RecipeListItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Current page is tracked in a ref (not rendered) so the scroll-triggered
+  // loader reads it synchronously without stale-closure or double-fetch issues.
+  const pageRef = useRef(1);
+  // Synchronous "a load is in flight" guard so the IntersectionObserver can't
+  // fire a second load before loadingMore state updates.
+  const loadingMoreRef = useRef(false);
+  // Sentinel element observed to auto-load the next page as it nears the viewport.
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const [query, setQuery] = useState(() => searchParams.get("q") ?? "");
   const debouncedQuery = useDebounce(query, 350);
@@ -39,7 +47,7 @@ export function RecipeGrid() {
 
   const fetchRecipes = useCallback(
     async (pageNum: number, append: boolean) => {
-      if (append) setLoadingMore(true);
+      if (append) { setLoadingMore(true); loadingMoreRef.current = true; }
       else setLoading(true);
       setError(null);
       try {
@@ -61,6 +69,7 @@ export function RecipeGrid() {
       } finally {
         setLoading(false);
         setLoadingMore(false);
+        loadingMoreRef.current = false;
       }
     },
     [debouncedQuery, aiSearch, showFavorites, complexity],
@@ -68,16 +77,36 @@ export function RecipeGrid() {
 
   // Reset and fetch fresh when filters change
   useEffect(() => {
-    setPage(1);
+    pageRef.current = 1;
     setRecipes([]);
     fetchRecipes(1, false);
   }, [fetchRecipes]);
 
-  function loadMore() {
-    const next = page + 1;
-    setPage(next);
+  const loadMore = useCallback(() => {
+    if (loadingMoreRef.current) return;
+    const next = pageRef.current + 1;
+    pageRef.current = next;
     fetchRecipes(next, true);
-  }
+  }, [fetchRecipes]);
+
+  // Infinite scroll: load the next page when the sentinel nears the viewport.
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !loadingMoreRef.current) {
+          loadMore();
+        }
+      },
+      { rootMargin: "600px" }, // start loading well before the user hits the bottom
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+    // Re-attach after each append so the observer re-checks the sentinel's new
+    // position — this auto-fills tall viewports and avoids the "sentinel stays
+    // intersecting so it never re-fires" infinite-scroll pitfall.
+  }, [hasMore, loadMore, recipes.length]);
 
   function handleFavoriteToggle(id: string, newValue: boolean) {
     if (showFavorites && !newValue) {
@@ -212,16 +241,19 @@ export function RecipeGrid() {
             ))}
           </div>
 
+          {/* Infinite-scroll sentinel: as this scrolls into view the next
+              page loads automatically. */}
           {hasMore && (
-            <div className="flex justify-center pt-2">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={loadMore}
-                disabled={loadingMore}
-              >
-                {loadingMore ? "Loading…" : `Load more (${total - recipes.length} remaining)`}
-              </Button>
+            <div ref={sentinelRef} className="flex justify-center py-6">
+              {loadingMore && (
+                <span className="flex items-center gap-2 text-sm text-muted">
+                  <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                  Loading more recipes…
+                </span>
+              )}
             </div>
           )}
         </>
