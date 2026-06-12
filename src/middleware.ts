@@ -38,5 +38,11 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
+  // Exclude framework/static asset routes from the auth gate. The App Router
+  // metadata icons (icon.png, apple-icon.png) are real routes too — if they
+  // aren't excluded, an unauthenticated request for /icon.png is redirected to
+  // /login (a 307 returning HTML, not an image). Browsers that prefer the PNG
+  // favicon then cache that broken response, so the tab/bookmark icon never
+  // appears. Keep this list in sync with the metadata files under src/app.
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|icon.png|apple-icon.png).*)"],
 };

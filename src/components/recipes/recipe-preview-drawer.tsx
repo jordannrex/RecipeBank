@@ -460,10 +460,18 @@ export function RecipePreviewDrawer({
           never forms an artifact at the panel boundary. Do NOT clip this to the
           panel's left edge — a clip there can leave a 1px un-blurred sliver when
           the backdrop's right edge and the panel's left edge round to different
-          device pixels (that sliver was the original "unblurred line"). */}
+          device pixels (that sliver was the original "unblurred line").
+
+          Height is pinned with the viewport units h-screen/h-dvh rather than
+          left to inset-0's `bottom:0`. On the page the backdrop's `bottom:0`
+          was resolving ~24px short of the viewport (its containing block did
+          not equal the visual viewport), leaving an un-blurred bar along the
+          bottom edge where the page showed through. h-dvh sizes to the real
+          viewport — the same way the opaque panel (h-screen) already reaches
+          the bottom correctly — so the blur now covers every edge. */}
       <div
         className={cn(
-          "fixed inset-0 z-40 bg-background/50 backdrop-blur-[2px] transition-opacity duration-280",
+          "fixed inset-0 h-screen h-dvh z-40 bg-background/50 backdrop-blur-[2px] transition-opacity duration-280",
           visible ? "opacity-100" : "opacity-0",
         )}
         onClick={handleClose}
