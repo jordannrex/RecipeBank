@@ -763,7 +763,17 @@ function RecipePicker({
   onClose: () => void;
   onEventCreated: (event: CalendarEvent) => void;
 }) {
-  const future = isFuture(targetDate);
+  const today   = localToday();
+  const future  = targetDate > today;   // future days can only be planned
+  const isPast  = targetDate < today;   // past days can only be logged
+  const isToday = !future && !isPast;   // today: the user chooses
+
+  // On "today" the user picks Plan vs Log. Default to Plan — adding a recipe
+  // for today should never silently become a cook log.
+  const [mode, setMode] = useState<"plan" | "log">("plan");
+  // Whether the current action is "planning" (vs logging a cook).
+  const planning = future || (isToday && mode === "plan");
+
   const [query, setQuery]                     = useState("");
   const [recipes, setRecipes]                 = useState<PickerRecipe[]>([]);
   const [loadingRecipes, setLoadingRecipes]   = useState(true);
@@ -800,7 +810,7 @@ function RecipePicker({
   }, [onClose]);
 
   async function handleRecipeSelect(recipe: PickerRecipe) {
-    if (future) {
+    if (planning) {
       setSubmitting(true); setError(null);
       try {
         const res  = await fetch("/api/meal-plans", {
@@ -851,9 +861,34 @@ function RecipePicker({
         <div className="flex items-center justify-between border-b border-border px-5 py-4 flex-shrink-0">
           <div>
             <p className="text-xs font-medium text-muted uppercase tracking-wide">
-              {future ? "Plan a meal" : "Log a cook"}
+              {planning ? "Plan a meal" : "Log a cook"}
             </p>
             <h2 className="text-base font-semibold text-text">{displayDate}</h2>
+            {/* Today can be either — let the user choose (defaults to Plan). */}
+            {isToday && !selectedRecipe && (
+              <div className="mt-2 inline-flex items-center gap-0.5 rounded-full border border-border bg-background p-0.5 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setMode("plan")}
+                  className={cn(
+                    "rounded-full px-3 py-1 transition-colors",
+                    mode === "plan" ? "bg-highlight text-white" : "text-muted hover:text-text",
+                  )}
+                >
+                  Plan meal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("log")}
+                  className={cn(
+                    "rounded-full px-3 py-1 transition-colors",
+                    mode === "log" ? "bg-highlight text-white" : "text-muted hover:text-text",
+                  )}
+                >
+                  Log cook
+                </button>
+              </div>
+            )}
           </div>
           <button type="button" onClick={onClose} aria-label="Close"
             className="rounded-lg p-1.5 text-muted hover:bg-card-hover hover:text-text transition-colors">
@@ -969,7 +1004,7 @@ function RecipePicker({
             </div>
             <div className="border-t border-border px-4 py-2.5 flex-shrink-0">
               <p className="text-xs text-muted text-center">
-                {future ? "Select a recipe to add it as a planned meal" : "Select a recipe to log a cook session"}
+                {planning ? "Select a recipe to add it as a planned meal" : "Select a recipe to log a cook session"}
               </p>
             </div>
           </>
@@ -1207,7 +1242,7 @@ function DayView({
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
             <path d="M12 5v14M5 12h14" />
           </svg>
-          {isFuture(dateStr) ? "Plan meal" : "Log cook"}
+          {isFuture(dateStr) ? "Plan meal" : dateStr === today ? "Add" : "Log cook"}
         </button>
       </div>
 

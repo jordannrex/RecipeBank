@@ -5,6 +5,7 @@ import { HeroRecipeBackdrop, type JournalRecipe } from "@/components/home/hero-r
 import { Logo } from "@/components/ui/logo";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { realizePastMealPlans } from "@/lib/meal-plan-realize";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -190,6 +191,10 @@ export default async function HomePage() {
   const user = await getCurrentUser();
   const userId = user!.id;
   const firstName = user!.displayName.split(" ")[0];
+
+  // Realize any meal plans whose day has passed into cook logs, so plans
+  // "turn into reality" on their own — stats below (and everywhere) reflect it.
+  await realizePastMealPlans(userId);
 
   const select = {
     id: true,

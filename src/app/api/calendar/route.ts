@@ -2,6 +2,7 @@ import { z } from "zod";
 import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { realizePastMealPlans } from "@/lib/meal-plan-realize";
 import type { CalendarEvent } from "@/types/calendar";
 import type { MenuBand } from "@/types/menu";
 
@@ -27,6 +28,10 @@ export async function GET(request: Request) {
   if (!parsed.success) return apiError(parsed.error.issues[0]?.message ?? "Invalid query", 400);
 
   const { year, month } = parsed.data;
+
+  // Turn any meal plans whose day has passed into real cook logs first, so the
+  // calendar reflects them as logs (not lingering "planned" chips).
+  await realizePastMealPlans(auth.user.id);
 
   // Build a UTC date range covering the entire month.
   const startDate = new Date(Date.UTC(year, month - 1, 1));
