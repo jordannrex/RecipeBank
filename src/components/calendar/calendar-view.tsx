@@ -103,10 +103,12 @@ function EventDetailModal({
   event,
   onClose,
   onDelete,
+  onConverted,
 }: {
   event: CalendarEvent;
   onClose: () => void;
   onDelete: (e: CalendarEvent) => void;
+  onConverted: (removeId: string, newEvent: CalendarEvent) => void;
 }) {
   const today        = localToday();
   const isCookLog    = event.type === "cook-log";
@@ -124,6 +126,72 @@ function EventDetailModal({
   });
   const [noteText, setNoteText]     = useState("");
   const [savingNote, setSavingNote] = useState(false);
+
+  // ── Plan → Log conversion (only on the planned day) ──────────────────────
+  // A planned meal (meal-plan) or a menu-scheduled recipe (menu-recipe) can be
+  // turned into a real cook log on its day. One-way: once logged it can't be
+  // toggled back here.
+  const [isLog, setIsLog]               = useState(false);   // slider position (optimistic)
+  const [converting, setConverting]     = useState(false);
+  const [convertError, setConvertError] = useState<string | null>(null);
+  const [convertedEvent, setConvertedEvent] = useState<CalendarEvent | null>(null);
+  const convertNoteRef = useRef<HTMLTextAreaElement>(null);
+
+  const canConvert =
+    (event.type === "meal-plan" || event.type === "menu-recipe") &&
+    event.date === today &&
+    convertedEvent === null;
+
+  // Whether the modal should wear the solid "Cook Log" look. While the slider
+  // is mid-flow it follows the slider; after conversion it's always solid.
+  const solidStyle = convertedEvent !== null ? true : canConvert ? isLog : isSolid;
+
+  async function handleConvert() {
+    if (converting || isLog) return;
+    setIsLog(true);            // slide immediately so the design flips
+    setConverting(true);
+    setConvertError(null);
+    try {
+      const res = await fetch("/api/calendar/convert-to-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: event.type, id: event.id, notes: null }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setConvertError(json.error ?? "Couldn't log this meal");
+        setIsLog(false);       // revert the slider
+        return;
+      }
+      const newEvent = json.data as CalendarEvent;
+      setConvertedEvent(newEvent);
+      onConverted(event.id, newEvent);   // swap the chip on the calendar
+      setNoteText("");
+      setTimeout(() => convertNoteRef.current?.focus(), 60);
+    } catch {
+      setConvertError("Something went wrong.");
+      setIsLog(false);
+    } finally {
+      setConverting(false);
+    }
+  }
+
+  async function handleSaveConvertedNote() {
+    if (!convertedEvent) return;
+    setSavingNote(true);
+    try {
+      const trimmed = noteText.trim() || null;
+      await fetch(`/api/recipes/${convertedEvent.recipeId}/cook-log/${convertedEvent.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notes: trimmed }),
+      });
+      onConverted(convertedEvent.id, { ...convertedEvent, notes: trimmed });
+      onClose();
+    } finally {
+      setSavingNote(false);
+    }
+  }
 
   async function handleSaveNote() {
     if (!event.menuId || !noteText.trim()) return;
@@ -161,7 +229,7 @@ function EventDetailModal({
         ) : (
           <div className={cn(
             "w-full h-28 flex items-center justify-center",
-            isSolid ? "bg-highlight/10" : "bg-border/20",
+            solidStyle ? "bg-highlight/10" : "bg-border/20",
           )}>
             <svg className="h-10 w-10 text-muted/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 8.25v-1.5m0 1.5c-1.355 0-2.697.056-4.024.166C6.845 8.51 6 9.473 6 10.608v2.513m6-4.871c1.355 0 2.697.056 4.024.166C17.155 8.51 18 9.473 18 10.608v2.513M15 8.25v-1.5m-6 1.5v-1.5m12 9.75-1.5.75a3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-1.5-.75m0-2.25a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v4.5a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V13.5Z" />
@@ -175,9 +243,9 @@ function EventDetailModal({
           <div className="flex items-center justify-between">
             <span className={cn(
               "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold",
-              isSolid ? "bg-highlight/10 text-highlight" : "bg-border/40 text-muted",
+              solidStyle ? "bg-highlight/10 text-highlight" : "bg-border/40 text-muted",
             )}>
-              {isSolid ? (
+              {solidStyle ? (
                 <>
                   <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
                     <path d="M5 13l4 4L19 7" />
@@ -211,8 +279,93 @@ function EventDetailModal({
             <p className="text-xs text-muted mt-0.5">{displayDate}</p>
           </div>
 
-          {/* Notes */}
-          {isMenuRecipe ? (
+          {/* Plan → Log slider (only on the planned day, before converting) */}
+          {canConvert && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-medium text-text">It&apos;s cooking day</span>
+                <div className="relative flex w-[140px] flex-shrink-0 select-none rounded-full bg-border/50 p-0.5 text-xs font-semibold">
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "absolute inset-y-0.5 left-0.5 w-[calc(50%-2px)] rounded-full bg-highlight shadow-sm transition-transform duration-200 ease-out",
+                      isLog && "translate-x-full",
+                    )}
+                  />
+                  <button
+                    type="button"
+                    disabled={converting || isLog}
+                    onClick={() => setIsLog(false)}
+                    className={cn(
+                      "relative z-10 flex-1 rounded-full py-1 transition-colors",
+                      !isLog ? "text-white" : "text-muted hover:text-text",
+                    )}
+                  >
+                    Plan
+                  </button>
+                  <button
+                    type="button"
+                    disabled={converting}
+                    onClick={handleConvert}
+                    className={cn(
+                      "relative z-10 flex-1 rounded-full py-1 transition-colors",
+                      isLog ? "text-white" : "text-muted hover:text-text",
+                    )}
+                  >
+                    Log
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-muted leading-relaxed">
+                Slide to <span className="font-medium text-text">Log</span> once you&apos;ve cooked it — this records a cook log for today and can&apos;t be undone here.
+              </p>
+              {convertError && <p className="text-xs text-destructive">{convertError}</p>}
+            </div>
+          )}
+
+          {/* Just-converted: confirm + prompt for an optional cook note */}
+          {convertedEvent && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-1.5 rounded-lg bg-highlight/10 px-3 py-2 text-xs font-semibold text-highlight">
+                <svg className="h-3.5 w-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+                  <path d="M5 13l4 4L19 7" />
+                </svg>
+                Logged as cooked today
+              </div>
+              <label htmlFor="convert-cook-note" className="block text-sm font-medium text-text">
+                Add a cook note <span className="font-normal text-muted">(optional)</span>
+              </label>
+              <textarea
+                id="convert-cook-note"
+                ref={convertNoteRef}
+                value={noteText}
+                onChange={(e) => setNoteText(e.target.value)}
+                placeholder="How did it go? Any tweaks?"
+                rows={3}
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20 resize-none"
+              />
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleSaveConvertedNote}
+                  disabled={savingNote}
+                  className="rounded-lg bg-highlight px-4 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {savingNote ? "Saving…" : "Save note"}
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="text-xs text-muted hover:text-text transition-colors"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Notes — hidden while the convert slider / prompt is showing */}
+          {!canConvert && !convertedEvent && (isMenuRecipe ? (
             event.notes ? (
               <div className="rounded-lg bg-background border border-border/60 px-3 py-2.5">
                 <p className="text-xs font-medium text-muted mb-1">Cook notes</p>
@@ -242,39 +395,41 @@ function EventDetailModal({
                 <p className="text-sm text-text leading-relaxed">{event.notes}</p>
               </div>
             )
-          )}
+          ))}
 
-          {/* Actions */}
-          <div className="flex items-center justify-between pt-1">
-            <Link
-              href={`/recipes/${event.recipeId}`}
-              className="flex items-center gap-1.5 text-sm font-medium text-highlight hover:opacity-80 transition-opacity"
-            >
-              View Recipe
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-                <path d="M9 5l7 7-7 7" />
-              </svg>
-            </Link>
-            {isMenuRecipe ? (
-              <Link href="/menus"
-                className="flex items-center gap-1 text-xs text-muted hover:text-text transition-colors"
-                onClick={onClose}
+          {/* Actions — hidden once converted (the prompt has its own buttons) */}
+          {!convertedEvent && (
+            <div className="flex items-center justify-between pt-1">
+              <Link
+                href={`/recipes/${event.recipeId}`}
+                className="flex items-center gap-1.5 text-sm font-medium text-highlight hover:opacity-80 transition-opacity"
               >
-                Edit menu →
-              </Link>
-            ) : (
-              <button
-                type="button"
-                onClick={() => { onDelete(event); onClose(); }}
-                className="flex items-center gap-1 text-xs text-muted hover:text-destructive transition-colors"
-              >
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
-                  <path d="m19 7-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16" />
+                View Recipe
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
+                  <path d="M9 5l7 7-7 7" />
                 </svg>
-                Remove
-              </button>
-            )}
-          </div>
+              </Link>
+              {isMenuRecipe ? (
+                <Link href="/menus"
+                  className="flex items-center gap-1 text-xs text-muted hover:text-text transition-colors"
+                  onClick={onClose}
+                >
+                  Edit menu →
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => { onDelete(event); onClose(); }}
+                  className="flex items-center gap-1 text-xs text-muted hover:text-destructive transition-colors"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+                    <path d="m19 7-.867 12.142A2 2 0 0 1 16.138 21H7.862a2 2 0 0 1-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v3M4 7h16" />
+                  </svg>
+                  Remove
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -1270,6 +1425,15 @@ export function CalendarView() {
     setEvents((prev) => [...prev, event]);
   }
 
+  // A plan/menu entry was converted into a cook log: drop the old chip and the
+  // (possibly pre-existing) new one, then add the cook-log event in its place.
+  function handleConverted(removeId: string, newEvent: CalendarEvent) {
+    setEvents((prev) => [
+      ...prev.filter((e) => e.id !== removeId && e.id !== newEvent.id),
+      newEvent,
+    ]);
+  }
+
   async function handleDeleteEvent(event: CalendarEvent) {
     // Menu recipe events are managed via the Menus page, not removed from the calendar directly
     if (event.type === "menu-recipe") {
@@ -1394,6 +1558,7 @@ export function CalendarView() {
           event={viewingEvent}
           onClose={() => setViewingEvent(null)}
           onDelete={(ev) => { handleDeleteEvent(ev); setViewingEvent(null); }}
+          onConverted={handleConverted}
         />
       )}
     </div>
