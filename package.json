@@ -14,6 +14,7 @@
     "db:seed": "tsx --env-file=.env.local prisma/seed.ts",
     "db:search-indexes": "prisma db execute --file prisma/sql/search-indexes.sql",
     "purge:deletions": "tsx --env-file=.env.local scripts/purge-deleted-accounts.ts",
+    "backfill:metadata": "tsx --env-file=.env.local scripts/backfill-metadata.ts",
     "migrate:v1": "tsx --env-file=.env.local scripts/migrate-from-v1.ts",
     "migrate:v1-user": "tsx --env-file=.env.local scripts/migrate-v1-to-user.ts",
     "postinstall": "prisma generate"
