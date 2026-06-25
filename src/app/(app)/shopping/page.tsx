@@ -186,8 +186,8 @@ function PriceCalculatorTab({
       </p>
 
       <div className="overflow-hidden rounded-xl border border-border">
-        {/* Column headers */}
-        <div className="grid grid-cols-[1fr_auto_auto_auto] gap-x-4 border-b border-border bg-card px-4 py-2.5">
+        {/* Column headers — desktop only; the mobile layout is self-labelled */}
+        <div className="hidden grid-cols-[1fr_auto_auto_auto] gap-x-4 border-b border-border bg-card px-4 py-2.5 sm:grid">
           <span className="text-xs font-semibold uppercase tracking-wider text-text/50">Item</span>
           <span className="w-36 text-right text-xs font-semibold uppercase tracking-wider text-text/50">Store Pkg</span>
           <span className="w-24 text-right text-xs font-semibold uppercase tracking-wider text-text/50">Price</span>
@@ -201,79 +201,136 @@ function PriceCalculatorTab({
           const result = calcIngredientCost(recipeQty, item.unit, row.storePkgQty, row.storePkgUnit, row.price);
           const recipeLabel = formatQty(item.quantity, item.unit);
 
-          return (
-            <div
-              key={item.id}
-              className={cn(
-                "grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-4 border-b border-border/60 px-4 py-3 last:border-b-0",
-                item.isChecked && "opacity-50",
+          // Shared bits so the mobile + desktop layouts stay in sync
+          const itemName = (
+            <p className={cn("text-sm font-semibold text-text", item.isChecked && "line-through")}>
+              {item.name}
+            </p>
+          );
+          const itemMeta = (
+            <p className="text-xs text-muted">
+              {recipeLabel ? (
+                <>
+                  Need: <QtyUnit quantity={item.quantity} unit={item.unit} />
+                  {item.recipeName && <> · {item.recipeName}</>}
+                </>
+              ) : (
+                item.recipeName ?? (item.isManual ? "Manually added" : "")
               )}
-            >
-              {/* Item name + recipe source + recipe amount */}
-              <div className="min-w-0">
-                <p className={cn("text-sm font-semibold text-text", item.isChecked && "line-through")}>
-                  {item.name}
-                </p>
-                <p className="text-xs text-muted">
-                  {recipeLabel ? (
-                    <>
-                      Need: <QtyUnit quantity={item.quantity} unit={item.unit} />
-                      {item.recipeName && <> · {item.recipeName}</>}
-                    </>
-                  ) : (
-                    item.recipeName ?? (item.isManual ? "Manually added" : "")
-                  )}
-                </p>
+            </p>
+          );
+          const costDisplay =
+            result.status === "ok" ? (
+              <span className="text-sm font-medium text-text">${result.cost.toFixed(2)}</span>
+            ) : result.status === "incompatible" || result.status === "unknown" ? (
+              <span className="cursor-help text-sm text-amber-500" title={result.hint}>⚠️</span>
+            ) : (
+              <span className="text-sm text-text/30">—</span>
+            );
+
+          return (
+            <div key={item.id} className="border-b border-border/60 last:border-b-0">
+              {/* ── Mobile: stacked card (no horizontal crowding) ── */}
+              <div className={cn("px-4 py-3 sm:hidden", item.isChecked && "opacity-50")}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    {itemName}
+                    {itemMeta}
+                  </div>
+                  <div className="flex-shrink-0 text-right">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-text/40">Cost</p>
+                    <div className="mt-0.5">{costDisplay}</div>
+                  </div>
+                </div>
+                <div className="mt-3 flex items-end gap-5">
+                  <div>
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text/40">Store pkg</p>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={row.storePkgQty}
+                        onChange={(e) => onChange(item.id, "storePkgQty", e.target.value)}
+                        placeholder="qty"
+                        className="w-14 border-b border-border/60 bg-transparent py-0.5 text-sm text-text outline-none placeholder:text-text/30 focus:border-highlight"
+                      />
+                      <input
+                        type="text"
+                        value={row.storePkgUnit}
+                        onChange={(e) => onChange(item.id, "storePkgUnit", e.target.value)}
+                        placeholder="unit"
+                        className="w-16 border-b border-border/60 bg-transparent py-0.5 text-sm text-text outline-none placeholder:text-text/30 focus:border-highlight"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-text/40">Price</p>
+                    <div className="flex items-center gap-1">
+                      <span className="text-sm text-text/50">$</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={row.price}
+                        onChange={(e) => onChange(item.id, "price", e.target.value)}
+                        placeholder="0.00"
+                        className="w-20 border-b border-border/60 bg-transparent py-0.5 text-sm text-text outline-none placeholder:text-text/30 focus:border-highlight"
+                      />
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              {/* Store pkg: qty + unit */}
-              <div className="flex w-36 items-center gap-2">
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={row.storePkgQty}
-                  onChange={(e) => onChange(item.id, "storePkgQty", e.target.value)}
-                  placeholder="qty"
-                  className="w-14 border-b border-border/60 bg-transparent py-0.5 text-right text-sm text-text outline-none placeholder:text-text/30 focus:border-highlight"
-                />
-                <input
-                  type="text"
-                  value={row.storePkgUnit}
-                  onChange={(e) => onChange(item.id, "storePkgUnit", e.target.value)}
-                  placeholder="unit"
-                  className="w-16 border-b border-border/60 bg-transparent py-0.5 text-right text-sm text-text outline-none placeholder:text-text/30 focus:border-highlight"
-                />
-              </div>
-
-              {/* Price */}
-              <div className="flex w-24 items-center gap-1">
-                <span className="text-sm text-text/50">$</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={row.price}
-                  onChange={(e) => onChange(item.id, "price", e.target.value)}
-                  placeholder="0.00"
-                  className="w-full border-b border-border/60 bg-transparent py-0.5 text-right text-sm text-text outline-none placeholder:text-text/30 focus:border-highlight"
-                />
-              </div>
-
-              {/* Calculated cost */}
-              <div className="w-16 text-right">
-                {result.status === "ok" ? (
-                  <span className="text-sm font-medium text-text">${result.cost.toFixed(2)}</span>
-                ) : result.status === "incompatible" || result.status === "unknown" ? (
-                  <span
-                    className="cursor-help text-sm text-amber-500"
-                    title={result.hint}
-                  >
-                    ⚠️
-                  </span>
-                ) : (
-                  <span className="text-sm text-text/30">—</span>
+              {/* ── Desktop: aligned grid row ── */}
+              <div
+                className={cn(
+                  "hidden grid-cols-[1fr_auto_auto_auto] items-center gap-x-4 px-4 py-3 sm:grid",
+                  item.isChecked && "opacity-50",
                 )}
+              >
+                {/* Item name + recipe source + recipe amount */}
+                <div className="min-w-0">
+                  {itemName}
+                  {itemMeta}
+                </div>
+
+                {/* Store pkg: qty + unit */}
+                <div className="flex w-36 items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={row.storePkgQty}
+                    onChange={(e) => onChange(item.id, "storePkgQty", e.target.value)}
+                    placeholder="qty"
+                    className="w-14 border-b border-border/60 bg-transparent py-0.5 text-right text-sm text-text outline-none placeholder:text-text/30 focus:border-highlight"
+                  />
+                  <input
+                    type="text"
+                    value={row.storePkgUnit}
+                    onChange={(e) => onChange(item.id, "storePkgUnit", e.target.value)}
+                    placeholder="unit"
+                    className="w-16 border-b border-border/60 bg-transparent py-0.5 text-right text-sm text-text outline-none placeholder:text-text/30 focus:border-highlight"
+                  />
+                </div>
+
+                {/* Price */}
+                <div className="flex w-24 items-center gap-1">
+                  <span className="text-sm text-text/50">$</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={row.price}
+                    onChange={(e) => onChange(item.id, "price", e.target.value)}
+                    placeholder="0.00"
+                    className="w-full border-b border-border/60 bg-transparent py-0.5 text-right text-sm text-text outline-none placeholder:text-text/30 focus:border-highlight"
+                  />
+                </div>
+
+                {/* Calculated cost */}
+                <div className="w-16 text-right">{costDisplay}</div>
               </div>
             </div>
           );

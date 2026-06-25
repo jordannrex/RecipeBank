@@ -142,7 +142,9 @@ export function HeroRecipeBackdrop({ recipes }: { recipes?: JournalRecipe[] }) {
   return (
     <div
       aria-hidden="true"
-      className="pointer-events-none absolute inset-0 overflow-hidden opacity-75 dark:opacity-[0.55]"
+      // Phones are too small for the collage to read well — hide it entirely
+      // below the `sm` breakpoint and only render it on larger screens.
+      className="pointer-events-none absolute inset-0 hidden overflow-hidden opacity-75 sm:block dark:opacity-[0.55]"
       style={{
         // Fade the collage out toward the center (behind the welcome + search)
         // and gently at the very edges, so it never competes with the content.

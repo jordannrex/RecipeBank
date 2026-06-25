@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Rowdies, Caveat, Patrick_Hand } from "next/font/google";
 import "./globals.css";
+import { ServiceWorkerRegister } from "@/components/layout/service-worker-register";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,8 +34,28 @@ const patrickHand = Patrick_Hand({
 });
 
 export const metadata: Metadata = {
+  applicationName: "RecipeBank",
   title: "RecipeBank",
   description: "AI-powered recipe management, meal planning, and shopping lists",
+  // Drives the iOS "Add to Home Screen" full-screen experience.
+  appleWebApp: {
+    capable: true,
+    title: "RecipeBank",
+    statusBarStyle: "default",
+  },
+  // Next emits the modern `mobile-web-app-capable`; older iOS Safari still
+  // reads the legacy `apple-` prefixed tag, so include it too for full-screen.
+  other: {
+    "apple-mobile-web-app-capable": "yes",
+  },
+};
+
+export const viewport: Viewport = {
+  // Status-bar / theme tint that follows light vs dark mode.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#e8b8b8" },
+    { media: "(prefers-color-scheme: dark)", color: "#000000" },
+  ],
 };
 
 // Injected before hydration so the correct theme class is present immediately,
@@ -62,6 +83,7 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${rowdies.variable} ${caveat.variable} ${patrickHand.variable} antialiased`}
       >
+        <ServiceWorkerRegister />
         {children}
       </body>
     </html>

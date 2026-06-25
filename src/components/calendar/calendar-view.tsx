@@ -1351,6 +1351,18 @@ export function CalendarView() {
   // Single anchor date drives all three views
   const [anchorDate, setAnchorDate]     = useState(today);
   const [viewMode, setViewMode]         = useState<ViewMode>("week");
+
+  // Default to the day view on phones (the 7-column week grid is too cramped
+  // there) while keeping week as the default on larger screens. Runs once on
+  // mount so we don't fight a hydration mismatch — SSR always renders "week".
+  const pickedDefaultView = useRef(false);
+  useEffect(() => {
+    if (pickedDefaultView.current) return;
+    pickedDefaultView.current = true;
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 639px)").matches) {
+      setViewMode("day");
+    }
+  }, []);
   const [events, setEvents]             = useState<CalendarEvent[]>([]);
   const [mealPlanBands, setMealPlanBands]       = useState<MealPlanBand[]>([]);
   const [loading, setLoading]           = useState(true);
