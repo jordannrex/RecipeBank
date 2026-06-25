@@ -3,7 +3,7 @@
  *
  * Creates a fully-populated demo account covering every feature:
  *   • 5 recipes (2 favorites, varied complexity/cuisine/dish type)
- *   • 1 menu with all 5 items, 1 past logged usage, 1 upcoming planned usage
+ *   • 1 mealPlan with all 5 items, 1 past logged usage, 1 upcoming planned usage
  *   • 2 cook logs (with notes)
  *   • 1 upcoming meal plan
  *   • 3 recipe notes
@@ -125,17 +125,17 @@ const ID = {
     shrimpGreenOnion:  "seed-ing-shrimp-greenonion",
   },
 
-  // ── Menu ──────────────────────────────────────────────────────────────────
-  menu:       "seed-menu-weeknight",
-  menuItem: {
-    burgers: "seed-menuitem-burgers",
-    pasta:   "seed-menuitem-pasta",
-    chicken: "seed-menuitem-chicken",
-    heroes:  "seed-menuitem-heroes",
-    shrimp:  "seed-menuitem-shrimp",
+  // ── MealPlan ──────────────────────────────────────────────────────────────────
+  mealPlan:       "seed-mealPlan-weeknight",
+  mealPlanItem: {
+    burgers: "seed-mealPlanitem-burgers",
+    pasta:   "seed-mealPlanitem-pasta",
+    chicken: "seed-mealPlanitem-chicken",
+    heroes:  "seed-mealPlanitem-heroes",
+    shrimp:  "seed-mealPlanitem-shrimp",
   },
-  menuUsagePast:    "seed-menuusage-past",
-  menuUsagePlanned: "seed-menuusage-planned",
+  mealPlanUsagePast:    "seed-mealPlanusage-past",
+  mealPlanUsagePlanned: "seed-mealPlanusage-planned",
 
   // ── Cook logs ─────────────────────────────────────────────────────────────
   cookLog: {
@@ -144,8 +144,8 @@ const ID = {
   },
 
   // ── Meal plan ─────────────────────────────────────────────────────────────
-  mealPlan: {
-    shrimp: "seed-mealplan-shrimp",
+  scheduledMeal: {
+    shrimp: "seed-scheduledmeal-shrimp",
   },
 
   // ── Recipe notes ──────────────────────────────────────────────────────────
@@ -409,58 +409,58 @@ async function main() {
 
   console.log("✓ Recipes: Pasta, Chicken, Burgers, Heroes, Shrimp Stir-Fry");
 
-  // ── 3. Menu ─────────────────────────────────────────────────────────────────
-  await prisma.menu.upsert({
-    where:  { id: ID.menu },
+  // ── 3. MealPlan ─────────────────────────────────────────────────────────────────
+  await prisma.mealPlan.upsert({
+    where:  { id: ID.mealPlan },
     update: {},
     create: {
-      id: ID.menu, userId: user.id,
-      title: "Summer Weeknight Menu",
+      id: ID.mealPlan, userId: user.id,
+      title: "Summer Weeknight Meal Plan",
       description: "A rotating set of quick dinners for the week — something comforting, something fresh, and a treat-yourself burger night.",
     },
   });
 
-  // Menu items — one per recipe, spaced a day apart starting next week
-  const menuItemDefs = [
-    { id: ID.menuItem.burgers, recipeId: ID.recipe.burgers, servings: 2, cookDate: d(7),  sortOrder: 0, notes: null },
-    { id: ID.menuItem.pasta,   recipeId: ID.recipe.pasta,   servings: 2, cookDate: d(8),  sortOrder: 1, notes: null },
-    { id: ID.menuItem.chicken, recipeId: ID.recipe.chicken, servings: 2, cookDate: d(9),  sortOrder: 2, notes: null },
-    { id: ID.menuItem.heroes,  recipeId: ID.recipe.heroes,  servings: 2, cookDate: d(10), sortOrder: 3, notes: null },
-    { id: ID.menuItem.shrimp,  recipeId: ID.recipe.shrimp,  servings: 2, cookDate: d(11), sortOrder: 4, notes: "Double the sauce if you like it extra glossy." },
+  // MealPlan items — one per recipe, spaced a day apart starting next week
+  const mealPlanItemDefs = [
+    { id: ID.mealPlanItem.burgers, recipeId: ID.recipe.burgers, servings: 2, cookDate: d(7),  sortOrder: 0, notes: null },
+    { id: ID.mealPlanItem.pasta,   recipeId: ID.recipe.pasta,   servings: 2, cookDate: d(8),  sortOrder: 1, notes: null },
+    { id: ID.mealPlanItem.chicken, recipeId: ID.recipe.chicken, servings: 2, cookDate: d(9),  sortOrder: 2, notes: null },
+    { id: ID.mealPlanItem.heroes,  recipeId: ID.recipe.heroes,  servings: 2, cookDate: d(10), sortOrder: 3, notes: null },
+    { id: ID.mealPlanItem.shrimp,  recipeId: ID.recipe.shrimp,  servings: 2, cookDate: d(11), sortOrder: 4, notes: "Double the sauce if you like it extra glossy." },
   ] as const;
 
-  for (const item of menuItemDefs) {
-    await prisma.menuItem.upsert({
+  for (const item of mealPlanItemDefs) {
+    await prisma.mealPlanItem.upsert({
       where:  { id: item.id },
       update: {},
-      create: { ...item, menuId: ID.menu },
+      create: { ...item, mealPlanId: ID.mealPlan },
     });
   }
 
-  // Menu usages — one logged in the past, one planned for this coming week
-  await prisma.menuUsage.upsert({
-    where:  { id: ID.menuUsagePast },
+  // MealPlan usages — one logged in the past, one planned for this coming week
+  await prisma.mealPlanUsage.upsert({
+    where:  { id: ID.mealPlanUsagePast },
     update: {},
     create: {
-      id: ID.menuUsagePast, menuId: ID.menu, userId: user.id,
+      id: ID.mealPlanUsagePast, mealPlanId: ID.mealPlan, userId: user.id,
       type: "logged",
       startDate: d(-28), endDate: d(-22),
       notes: "Everyone loved the burger night. Will repeat.",
     },
   });
 
-  await prisma.menuUsage.upsert({
-    where:  { id: ID.menuUsagePlanned },
+  await prisma.mealPlanUsage.upsert({
+    where:  { id: ID.mealPlanUsagePlanned },
     update: {},
     create: {
-      id: ID.menuUsagePlanned, menuId: ID.menu, userId: user.id,
+      id: ID.mealPlanUsagePlanned, mealPlanId: ID.mealPlan, userId: user.id,
       type: "planned",
       startDate: d(7), endDate: d(13),
       notes: null,
     },
   });
 
-  console.log("✓ Menu: Summer Weeknight Menu (5 items, 1 past log, 1 planned)");
+  console.log("✓ MealPlan: Summer Weeknight Meal Plan (5 items, 1 past log, 1 planned)");
 
   // ── 4. Cook logs ─────────────────────────────────────────────────────────────
   await prisma.cookLog.upsert({
@@ -486,11 +486,11 @@ async function main() {
   console.log("✓ Cook logs: Burgers (yesterday), Heroes (3 weeks ago)");
 
   // ── 5. Meal plan ─────────────────────────────────────────────────────────────
-  await prisma.mealPlan.upsert({
-    where:  { id: ID.mealPlan.shrimp },
+  await prisma.scheduledMeal.upsert({
+    where:  { id: ID.scheduledMeal.shrimp },
     update: {},
     create: {
-      id: ID.mealPlan.shrimp, userId: user.id, recipeId: ID.recipe.shrimp,
+      id: ID.scheduledMeal.shrimp, userId: user.id, recipeId: ID.recipe.shrimp,
       plannedDate: d(7),
       sortOrder: 0,
     },

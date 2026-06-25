@@ -2,16 +2,16 @@ import { z } from "zod";
 import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { realizePastMealPlans } from "@/lib/meal-plan-realize";
+import { realizePastScheduledMeals } from "@/lib/scheduled-meal-realize";
 import type { CalendarEvent } from "@/types/calendar";
-import type { MenuBand } from "@/types/menu";
+import type { MealPlanBand } from "@/types/meal-plan";
 
 // ---------------------------------------------------------------------------
 // GET /api/calendar?year=2026&month=6
 //
-// Returns all CookLog entries and MealPlan entries for the given month,
+// Returns all CookLog entries and ScheduledMeal entries for the given month,
 // merged into a single CalendarEvent[] sorted by date ascending.
-// Also returns menuBands and menu-recipe events.
+// Also returns mealPlanBands and meal-plan-recipe events.
 // ---------------------------------------------------------------------------
 
 const querySchema = z.object({
@@ -31,7 +31,7 @@ export async function GET(request: Request) {
 
   // Turn any meal plans whose day has passed into real cook logs first, so the
   // calendar reflects them as logs (not lingering "planned" chips).
-  await realizePastMealPlans(auth.user.id);
+  await realizePastScheduledMeals(auth.user.id);
 
   // Build a UTC date range covering the entire month.
   const startDate = new Date(Date.UTC(year, month - 1, 1));
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
     return `${y}-${m}-${dd}`;
   }
 
-  const [cookLogs, mealPlans, menuItemsRaw, menuBandsRaw] = await Promise.all([
+  const [cookLogs, scheduledMeals, mealPlanItemsRaw, mealPlanBandsRaw] = await Promise.all([
     prisma.cookLog.findMany({
       where: {
         userId: auth.user.id,
@@ -53,7 +53,7 @@ export async function GET(request: Request) {
       include: { recipe: { select: { title: true, photoUrl: true } } },
       orderBy: { cookedAt: "asc" },
     }),
-    prisma.mealPlan.findMany({
+    prisma.scheduledMeal.findMany({
       where: {
         userId: auth.user.id,
         plannedDate: { gte: startDate, lt: endDate },
@@ -61,25 +61,25 @@ export async function GET(request: Request) {
       include: { recipe: { select: { title: true, photoUrl: true } } },
       orderBy: { plannedDate: "asc" },
     }),
-    prisma.menuItem.findMany({
+    prisma.mealPlanItem.findMany({
       where: {
-        menu: { userId: auth.user.id },
+        mealPlan: { userId: auth.user.id },
         cookDate: { gte: startDate, lt: endDate },
       },
       include: {
-        menu: { select: { id: true, title: true } },
+        mealPlan: { select: { id: true, title: true } },
         recipe: { select: { title: true, photoUrl: true } },
       },
       orderBy: { cookDate: "asc" },
     }),
-    // MenuUsage bands: usages whose date range overlaps this month
-    prisma.menuUsage.findMany({
+    // MealPlanUsage bands: usages whose date range overlaps this month
+    prisma.mealPlanUsage.findMany({
       where: {
         userId: auth.user.id,
         startDate: { lte: new Date(Date.UTC(year, month, 0)) },
         endDate: { not: null, gte: startDate },
       },
-      select: { id: true, menuId: true, startDate: true, endDate: true, menu: { select: { title: true } } },
+      select: { id: true, mealPlanId: true, startDate: true, endDate: true, mealPlan: { select: { title: true } } },
     }),
   ]);
 
@@ -93,36 +93,36 @@ export async function GET(request: Request) {
       date:           toDateStr(log.cookedAt),
       notes:          log.notes,
     })),
-    ...mealPlans.map((plan) => ({
+    ...scheduledMeals.map((plan) => ({
       id:             plan.id,
-      type:           "meal-plan" as const,
+      type:           "scheduled-meal" as const,
       recipeId:       plan.recipeId,
       recipeTitle:    plan.recipe.title,
       recipePhotoUrl: plan.recipe.photoUrl,
       date:           toDateStr(plan.plannedDate),
       notes:          null,
     })),
-    ...menuItemsRaw
+    ...mealPlanItemsRaw
       .filter((item) => item.cookDate !== null)
       .map((item) => ({
         id:             item.id,
-        type:           "menu-recipe" as const,
+        type:           "meal-plan-recipe" as const,
         recipeId:       item.recipeId,
         recipeTitle:    item.recipe.title,
         recipePhotoUrl: item.recipe.photoUrl,
         date:           toDateStr(item.cookDate!),
         notes:          item.notes,
-        menuId:         item.menu.id,
-        menuTitle:      item.menu.title,
+        mealPlanId:         item.mealPlan.id,
+        mealPlanTitle:      item.mealPlan.title,
       })),
   ].sort((a, b) => a.date.localeCompare(b.date));
 
-  const menuBands: MenuBand[] = menuBandsRaw.map((b) => ({
-    menuId:    b.menuId,
-    title:     b.menu.title,
+  const mealPlanBands: MealPlanBand[] = mealPlanBandsRaw.map((b) => ({
+    mealPlanId:    b.mealPlanId,
+    title:     b.mealPlan.title,
     startDate: toDateStr(b.startDate),
     endDate:   toDateStr(b.endDate!),
   }));
 
-  return apiSuccess({ events, menuBands });
+  return apiSuccess({ events, mealPlanBands });
 }

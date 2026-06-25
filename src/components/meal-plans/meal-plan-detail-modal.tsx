@@ -19,7 +19,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import { formatCost, parseCost } from "@/lib/cost";
-import type { MenuDetail, MenuRecipeItem, MenuSummary, MenuUsageRecord } from "@/types/menu";
+import type { MealPlanDetail, MealPlanRecipeItem, MealPlanSummary, MealPlanUsageRecord } from "@/types/meal-plan";
 import type { PickerRecipe } from "@/types/calendar";
 
 // ---------------------------------------------------------------------------
@@ -43,14 +43,14 @@ function formatDateRange(startDate: string | null, endDate: string | null): stri
 }
 
 /** Derive currentUsage from a list of usages (same logic as the API). */
-function deriveCurrentUsage(usages: MenuUsageRecord[], today: string): MenuUsageRecord | null {
+function deriveCurrentUsage(usages: MealPlanUsageRecord[], today: string): MealPlanUsageRecord | null {
   return usages.find(
     (u) => u.startDate <= today && (u.endDate === null || u.endDate >= today),
   ) ?? null;
 }
 
 /** Derive next planned usage from a list of usages (type=planned, startDate > today, earliest). */
-function deriveNextPlanned(usages: MenuUsageRecord[], today: string): MenuUsageRecord | null {
+function deriveNextPlanned(usages: MealPlanUsageRecord[], today: string): MealPlanUsageRecord | null {
   const candidates = usages
     .filter((u) => u.type === "planned" && u.startDate > today)
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
@@ -192,19 +192,19 @@ function InlineRecipePicker({
 }
 
 // ---------------------------------------------------------------------------
-// Main MenuDetailModal
+// Main MealPlanDetailModal
 // ---------------------------------------------------------------------------
 
 type Props = {
-  menuId: string;
+  mealPlanId: string;
   initialMode?: "view" | "edit";
   onClose: () => void;
-  onUpdated: (m: MenuSummary) => void;
+  onUpdated: (m: MealPlanSummary) => void;
   onDeleted: (id: string) => void;
 };
 
-export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdated, onDeleted }: Props) {
-  const [menu, setMenu] = useState<MenuDetail | null>(null);
+export function MealPlanDetailModal({ mealPlanId, initialMode = "view", onClose, onUpdated, onDeleted }: Props) {
+  const [mealPlan, setMealPlan] = useState<MealPlanDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"view" | "edit">(initialMode);
@@ -216,12 +216,12 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
   const [editError, setEditError] = useState<string | null>(null);
 
   // Items state (managed separately for optimistic updates)
-  const [items, setItems] = useState<MenuRecipeItem[]>([]);
+  const [items, setItems] = useState<MealPlanRecipeItem[]>([]);
   const [showRecipePicker, setShowRecipePicker] = useState(false);
   const [savingItemId, setSavingItemId] = useState<string | null>(null);
 
   // Usage state
-  const [allUsages, setAllUsages] = useState<MenuUsageRecord[]>([]);
+  const [allUsages, setAllUsages] = useState<MealPlanUsageRecord[]>([]);
   const [logPanelOpen, setLogPanelOpen] = useState<"log" | "plan" | null>(null);
   const [logForm, setLogForm] = useState({ startDate: "", endDate: "", notes: "" });
   const [savingUsage, setSavingUsage] = useState(false);
@@ -235,16 +235,16 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
   const currentUsage = deriveCurrentUsage(allUsages, today);
   const nextPlannedUsage = deriveNextPlanned(allUsages, today);
 
-  // Fetch menu data
-  const fetchMenu = useCallback(async () => {
+  // Fetch mealPlan data
+  const fetchMealPlan = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/menus/${menuId}`);
+      const res = await fetch(`/api/meal-plans/${mealPlanId}`);
       const json = await res.json();
-      if (!res.ok) { setError(json.error ?? "Failed to load menu"); return; }
-      const data = json.data as MenuDetail;
-      setMenu(data);
+      if (!res.ok) { setError(json.error ?? "Failed to load meal plan"); return; }
+      const data = json.data as MealPlanDetail;
+      setMealPlan(data);
       setItems(data.items ?? []);
       setAllUsages(data.allUsages ?? []);
       setEditTitle(data.title);
@@ -254,9 +254,9 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
     } finally {
       setLoading(false);
     }
-  }, [menuId]);
+  }, [mealPlanId]);
 
-  useEffect(() => { fetchMenu(); }, [fetchMenu]);
+  useEffect(() => { fetchMealPlan(); }, [fetchMealPlan]);
 
   // Escape key closes modal
   useEffect(() => {
@@ -272,14 +272,14 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
     }
   }, [mode, loading]);
 
-  // Save menu-level edits (title + description only)
+  // Save mealPlan-level edits (title + description only)
   async function handleSave() {
-    if (!menu) return;
+    if (!mealPlan) return;
     setEditError(null);
     if (!editTitle.trim()) { setEditError("Title is required"); return; }
     setSaving(true);
     try {
-      const res = await fetch(`/api/menus/${menuId}`, {
+      const res = await fetch(`/api/meal-plans/${mealPlanId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -289,8 +289,8 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
       });
       const json = await res.json();
       if (!res.ok) { setEditError(json.error ?? "Failed to save"); return; }
-      const updated = json.data as MenuDetail;
-      setMenu(updated);
+      const updated = json.data as MealPlanDetail;
+      setMealPlan(updated);
       setItems(updated.items ?? items);
       setAllUsages(updated.allUsages ?? allUsages);
       onUpdated(updated);
@@ -305,8 +305,8 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
   // Recompute item-derived summary fields and push them up to the parent list
   // so Sort (Most Recipes) / pill display stay in sync without a reload —
   // same propagation discipline as usage changes.
-  const propagateItemsChange = useCallback((base: MenuDetail, nextItems: MenuRecipeItem[]) => {
-    // Recompute the menu total from each item's (already scaled) estimatedCost.
+  const propagateItemsChange = useCallback((base: MealPlanDetail, nextItems: MealPlanRecipeItem[]) => {
+    // Recompute the mealPlan total from each item's (already scaled) estimatedCost.
     // The server recomputes this authoritatively on next load; this just keeps
     // the pill accurate after an optimistic add/remove/servings change.
     const itemCosts = nextItems.map((it) => parseCost(it.recipe.estimatedCost));
@@ -315,7 +315,7 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
       (acc, c) => (c !== null ? (acc ?? 0) + c : acc),
       null,
     );
-    const updated: MenuDetail = {
+    const updated: MealPlanDetail = {
       ...base,
       items: nextItems,
       itemCount: nextItems.length,
@@ -324,7 +324,7 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
       totalCost: sum !== null ? formatCost(sum) : null,
       isPartialCost: sum !== null && (anyUnpriced || base.isPartialCost),
     };
-    setMenu(updated);
+    setMealPlan(updated);
     onUpdated(updated);
   }, [onUpdated]);
 
@@ -332,17 +332,17 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
   async function patchItem(itemId: string, data: Record<string, unknown>) {
     setSavingItemId(itemId);
     try {
-      const res = await fetch(`/api/menus/${menuId}/items/${itemId}`, {
+      const res = await fetch(`/api/meal-plans/${mealPlanId}/items/${itemId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
       const json = await res.json();
-      if (res.ok && menu) {
-        const updatedItem = json.data as MenuRecipeItem;
+      if (res.ok && mealPlan) {
+        const updatedItem = json.data as MealPlanRecipeItem;
         const nextItems = items.map((it) => (it.id === itemId ? updatedItem : it));
         setItems(nextItems);
-        propagateItemsChange(menu, nextItems);
+        propagateItemsChange(mealPlan, nextItems);
       }
     } finally {
       setSavingItemId(null);
@@ -353,25 +353,25 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
   async function deleteItem(itemId: string) {
     const nextItems = items.filter((it) => it.id !== itemId);
     setItems(nextItems);
-    if (menu) propagateItemsChange(menu, nextItems);
-    await fetch(`/api/menus/${menuId}/items/${itemId}`, { method: "DELETE" });
+    if (mealPlan) propagateItemsChange(mealPlan, nextItems);
+    await fetch(`/api/meal-plans/${mealPlanId}/items/${itemId}`, { method: "DELETE" });
   }
 
   // Add a recipe
   async function handleAddRecipe(recipe: PickerRecipe) {
     setShowRecipePicker(false);
     try {
-      const res = await fetch(`/api/menus/${menuId}/items`, {
+      const res = await fetch(`/api/meal-plans/${mealPlanId}/items`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ recipeId: recipe.id }),
       });
       const json = await res.json();
-      if (res.ok && menu) {
-        const newItem = json.data as MenuRecipeItem;
+      if (res.ok && mealPlan) {
+        const newItem = json.data as MealPlanRecipeItem;
         const nextItems = [...items, newItem];
         setItems(nextItems);
-        propagateItemsChange(menu, nextItems);
+        propagateItemsChange(mealPlan, nextItems);
       }
     } catch { /* ignore */ }
   }
@@ -385,9 +385,9 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
     const newIndex = items.findIndex((it) => it.id === over.id);
     const newOrder = arrayMove(items, oldIndex, newIndex);
     setItems(newOrder);
-    if (menu) propagateItemsChange(menu, newOrder);
+    if (mealPlan) propagateItemsChange(mealPlan, newOrder);
 
-    await fetch(`/api/menus/${menuId}/items/reorder`, {
+    await fetch(`/api/meal-plans/${mealPlanId}/items/reorder`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ order: newOrder.map((it) => it.id) }),
@@ -396,15 +396,15 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
 
   // Recompute usage-derived summary fields and push them up to the parent list
   // so Sort/Filter (which operate on the parent's summaries) stay in sync.
-  const propagateUsageChange = useCallback((base: MenuDetail, nextUsages: MenuUsageRecord[]) => {
-    const updated: MenuDetail = {
+  const propagateUsageChange = useCallback((base: MealPlanDetail, nextUsages: MealPlanUsageRecord[]) => {
+    const updated: MealPlanDetail = {
       ...base,
       allUsages: [...nextUsages].sort((a, b) => b.startDate.localeCompare(a.startDate)),
       currentUsage: deriveCurrentUsage(nextUsages, today),
       nextPlannedUsage: deriveNextPlanned(nextUsages, today),
       usageCount: nextUsages.filter((u) => u.type === "logged").length,
     };
-    setMenu(updated);
+    setMealPlan(updated);
     onUpdated(updated);
   }, [today, onUpdated]);
 
@@ -413,7 +413,7 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
     if (!logPanelOpen || !logForm.startDate) return;
     setSavingUsage(true);
     try {
-      const res = await fetch(`/api/menus/${menuId}/usages`, {
+      const res = await fetch(`/api/meal-plans/${mealPlanId}/usages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -424,11 +424,11 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
         }),
       });
       const json = await res.json();
-      if (res.ok && menu) {
-        const newUsage = json.data as MenuUsageRecord;
+      if (res.ok && mealPlan) {
+        const newUsage = json.data as MealPlanUsageRecord;
         const nextUsages = [...allUsages, newUsage];
         setAllUsages(nextUsages);
-        propagateUsageChange(menu, nextUsages);
+        propagateUsageChange(mealPlan, nextUsages);
       }
       setLogPanelOpen(null);
       setLogForm({ startDate: "", endDate: "", notes: "" });
@@ -439,11 +439,11 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
 
   // Delete a usage
   async function handleDeleteUsage(usageId: string) {
-    if (!menu) return;
+    if (!mealPlan) return;
     const nextUsages = allUsages.filter((u) => u.id !== usageId);
     setAllUsages(nextUsages);
-    propagateUsageChange(menu, nextUsages);
-    await fetch(`/api/menus/${menuId}/usages/${usageId}`, { method: "DELETE" });
+    propagateUsageChange(mealPlan, nextUsages);
+    await fetch(`/api/meal-plans/${mealPlanId}/usages/${usageId}`, { method: "DELETE" });
   }
 
   // Sort usages by date DESC for display
@@ -468,7 +468,7 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
             <p className="text-sm text-destructive">{error}</p>
             <button type="button" onClick={onClose} className="mt-4 text-sm text-muted hover:text-text">Close</button>
           </div>
-        ) : menu ? (
+        ) : mealPlan ? (
           <>
             {/* Header */}
             <div className="flex-shrink-0 border-b border-border px-6 py-4">
@@ -482,7 +482,7 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
                           <path d="M6 18L18 6M6 6l12 12" />
                         </svg>
                       </button>
-                      <h2 className="text-xl font-bold text-text truncate">{menu.title}</h2>
+                      <h2 className="text-xl font-bold text-text truncate">{mealPlan.title}</h2>
                       {currentUsage && (
                         <span className="flex-shrink-0 rounded-full bg-highlight/15 px-2 py-0.5 text-xs font-medium text-highlight">
                           Current · {formatDateRange(currentUsage.startDate, currentUsage.endDate)}
@@ -494,12 +494,12 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
                         </span>
                       )}
                     </div>
-                    {menu.description && (
-                      <p className="ml-8 mt-0.5 text-sm text-muted">{menu.description}</p>
+                    {mealPlan.description && (
+                      <p className="ml-8 mt-0.5 text-sm text-muted">{mealPlan.description}</p>
                     )}
                     <p className="ml-8 text-xs text-muted mt-1">
-                      {menu.totalServings} serving{menu.totalServings !== 1 ? "s" : ""} total
-                      {menu.totalCost && ` · ~${menu.totalCost} estimated`}
+                      {mealPlan.totalServings} serving{mealPlan.totalServings !== 1 ? "s" : ""} total
+                      {mealPlan.totalCost && ` · ~${mealPlan.totalCost} estimated`}
                     </p>
                   </div>
                   <button type="button" onClick={() => setMode("edit")}
@@ -516,14 +516,14 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
                         <path d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </button>
-                    <h2 className="text-lg font-bold text-text">Edit Menu</h2>
+                    <h2 className="text-lg font-bold text-text">Edit Meal Plan</h2>
                   </div>
                   <input
                     ref={titleRef}
                     type="text"
                     value={editTitle}
                     onChange={(e) => setEditTitle(e.target.value)}
-                    placeholder="Menu title"
+                    placeholder="Meal plan title"
                     className="w-full rounded-xl border border-border bg-background px-3 py-2 text-sm text-text outline-none placeholder:text-muted focus:border-highlight focus:ring-2 focus:ring-highlight/20"
                   />
                   <textarea
@@ -553,7 +553,7 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
               {/* Item list */}
               {items.length === 0 ? (
                 <div className="py-10 text-center">
-                  <p className="text-sm text-muted">No recipes in this menu yet.</p>
+                  <p className="text-sm text-muted">No recipes in this meal plan yet.</p>
                 </div>
               ) : mode === "view" ? (
                 <ul className="divide-y divide-border/60">
@@ -695,7 +695,7 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
                       )}
                     </>
                   ) : (
-                    <p className="text-xs text-muted text-center py-2">Maximum 10 recipes per menu</p>
+                    <p className="text-xs text-muted text-center py-2">Maximum 10 recipes per mealPlan</p>
                   )}
                 </div>
               )}
@@ -717,7 +717,7 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
                           : "border-border bg-card text-text hover:bg-card-hover",
                       )}
                     >
-                      Log Menu
+                      Log Meal Plan
                     </button>
                     <button
                       type="button"
@@ -732,7 +732,7 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
                           : "border-border bg-card text-text hover:bg-card-hover",
                       )}
                     >
-                      Plan Menu
+                      Plan Meal Plan
                     </button>
                   </div>
 
@@ -842,10 +842,10 @@ export function MenuDetailModal({ menuId, initialMode = "view", onClose, onUpdat
               <p className="text-xs text-muted">{items.length} recipe{items.length !== 1 ? "s" : ""}</p>
               <button
                 type="button"
-                onClick={() => onDeleted(menu.id)}
+                onClick={() => onDeleted(mealPlan.id)}
                 className="text-xs text-muted hover:text-destructive transition-colors"
               >
-                Delete menu
+                Delete mealPlan
               </button>
             </div>
           </>

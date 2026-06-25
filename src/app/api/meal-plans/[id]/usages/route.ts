@@ -2,7 +2,7 @@ import { z } from "zod";
 import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import type { MenuUsageRecord } from "@/types/menu";
+import type { MealPlanUsageRecord } from "@/types/meal-plan";
 
 function toDateStr(d: Date): string {
   const year  = d.getUTCFullYear();
@@ -14,7 +14,7 @@ function toDateStr(d: Date): string {
 function toUsageRecord(u: {
   id: string; startDate: Date; endDate: Date | null;
   type: string; notes: string | null; createdAt: Date;
-}): MenuUsageRecord {
+}): MealPlanUsageRecord {
   return {
     id: u.id,
     startDate: toDateStr(u.startDate),
@@ -32,7 +32,7 @@ const createUsageSchema = z.object({
   notes: z.string().nullable().optional(),
 });
 
-// GET /api/menus/[id]/usages
+// GET /api/meal-plans/[id]/usages
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -41,19 +41,19 @@ export async function GET(
   if (!auth) return apiError("Unauthorized", 401);
 
   const { id } = await params;
-  const menu = await prisma.menu.findUnique({ where: { id }, select: { userId: true } });
-  if (!menu) return apiError("Menu not found", 404);
-  if (menu.userId !== auth.user.id) return apiError("Forbidden", 403);
+  const mealPlan = await prisma.mealPlan.findUnique({ where: { id }, select: { userId: true } });
+  if (!mealPlan) return apiError("MealPlan not found", 404);
+  if (mealPlan.userId !== auth.user.id) return apiError("Forbidden", 403);
 
-  const usages = await prisma.menuUsage.findMany({
-    where: { menuId: id },
+  const usages = await prisma.mealPlanUsage.findMany({
+    where: { mealPlanId: id },
     orderBy: { startDate: "desc" },
   });
 
   return apiSuccess(usages.map(toUsageRecord));
 }
 
-// POST /api/menus/[id]/usages
+// POST /api/meal-plans/[id]/usages
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -62,9 +62,9 @@ export async function POST(
   if (!auth) return apiError("Unauthorized", 401);
 
   const { id } = await params;
-  const menu = await prisma.menu.findUnique({ where: { id }, select: { userId: true } });
-  if (!menu) return apiError("Menu not found", 404);
-  if (menu.userId !== auth.user.id) return apiError("Forbidden", 403);
+  const mealPlan = await prisma.mealPlan.findUnique({ where: { id }, select: { userId: true } });
+  if (!mealPlan) return apiError("MealPlan not found", 404);
+  if (mealPlan.userId !== auth.user.id) return apiError("Forbidden", 403);
 
   let body: unknown;
   try { body = await request.json(); } catch { return apiError("Invalid body", 400); }
@@ -75,9 +75,9 @@ export async function POST(
   const { startDate, endDate, type, notes } = parsed.data;
   if (endDate && endDate < startDate) return apiError("End date must be on or after start date", 400);
 
-  const usage = await prisma.menuUsage.create({
+  const usage = await prisma.mealPlanUsage.create({
     data: {
-      menuId: id,
+      mealPlanId: id,
       userId: auth.user.id,
       startDate: new Date(startDate),
       endDate: endDate ? new Date(endDate) : null,

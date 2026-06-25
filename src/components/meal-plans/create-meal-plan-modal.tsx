@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
-import type { MenuDetail } from "@/types/menu";
+import type { MealPlanDetail } from "@/types/meal-plan";
 import type { PickerRecipe } from "@/types/calendar";
 
 // ---------------------------------------------------------------------------
@@ -15,15 +15,15 @@ type StagedItem = {
 };
 
 // ---------------------------------------------------------------------------
-// CreateMenuModal — 2-step wizard
+// CreateMealPlanModal — 2-step wizard
 // ---------------------------------------------------------------------------
 
 type Props = {
   onClose: () => void;
-  onCreated: (menu: MenuDetail) => void;
+  onCreated: (mealPlan: MealPlanDetail) => void;
 };
 
-export function CreateMenuModal({ onClose, onCreated }: Props) {
+export function CreateMealPlanModal({ onClose, onCreated }: Props) {
   const [step, setStep] = useState<1 | 2>(1);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +92,7 @@ export function CreateMenuModal({ onClose, onCreated }: Props) {
     if (!title.trim()) { setError("Title is required"); return; }
     setSubmitting(true);
     try {
-      const res = await fetch("/api/menus", {
+      const res = await fetch("/api/meal-plans", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -105,8 +105,8 @@ export function CreateMenuModal({ onClose, onCreated }: Props) {
         }),
       });
       const json = await res.json();
-      if (!res.ok) { setError(json.error ?? "Failed to create menu"); return; }
-      onCreated(json.data as MenuDetail);
+      if (!res.ok) { setError(json.error ?? "Failed to create meal plan"); return; }
+      onCreated(json.data as MealPlanDetail);
       onClose();
     } catch {
       setError("Something went wrong.");
@@ -131,7 +131,7 @@ export function CreateMenuModal({ onClose, onCreated }: Props) {
               Step {step} of 2
             </p>
             <h2 className="text-lg font-bold text-text">
-              {step === 1 ? "Name your menu" : "Add Recipes"}
+              {step === 1 ? "Name your meal plan" : "Add Recipes"}
             </h2>
           </div>
           <button type="button" onClick={onClose} aria-label="Close"
@@ -147,7 +147,7 @@ export function CreateMenuModal({ onClose, onCreated }: Props) {
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
             <div>
               <label className="block text-sm font-medium text-text mb-1.5">
-                Menu name <span className="text-destructive">*</span>
+                Meal plan name <span className="text-destructive">*</span>
               </label>
               <input
                 ref={titleRef}
@@ -320,7 +320,7 @@ export function CreateMenuModal({ onClose, onCreated }: Props) {
                 onClick={handleCreate}
                 className="rounded-lg bg-highlight px-5 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               >
-                {submitting ? "Creating…" : "Create Menu"}
+                {submitting ? "Creating…" : "Create Meal Plan"}
               </button>
             )}
           </div>

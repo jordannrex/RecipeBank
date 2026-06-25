@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import type { CalendarEvent, PickerRecipe, MenuBand } from "@/types/calendar";
+import type { CalendarEvent, PickerRecipe, MealPlanBand } from "@/types/calendar";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -112,8 +112,8 @@ function EventDetailModal({
 }) {
   const today        = localToday();
   const isCookLog    = event.type === "cook-log";
-  const isMenuRecipe = event.type === "menu-recipe";
-  const isSolid      = isCookLog || (isMenuRecipe && event.date <= today);
+  const isMealPlanRecipe = event.type === "meal-plan-recipe";
+  const isSolid      = isCookLog || (isMealPlanRecipe && event.date <= today);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === "Escape") onClose(); }
@@ -128,7 +128,7 @@ function EventDetailModal({
   const [savingNote, setSavingNote] = useState(false);
 
   // ── Plan → Log conversion (only on the planned day) ──────────────────────
-  // A planned meal (meal-plan) or a menu-scheduled recipe (menu-recipe) can be
+  // A planned meal (scheduled-meal) or a mealPlan-scheduled recipe (meal-plan-recipe) can be
   // turned into a real cook log on its day. One-way: once logged it can't be
   // toggled back here.
   const [isLog, setIsLog]               = useState(false);   // slider position (optimistic)
@@ -138,7 +138,7 @@ function EventDetailModal({
   const convertNoteRef = useRef<HTMLTextAreaElement>(null);
 
   const canConvert =
-    (event.type === "meal-plan" || event.type === "menu-recipe") &&
+    (event.type === "scheduled-meal" || event.type === "meal-plan-recipe") &&
     event.date === today &&
     convertedEvent === null;
 
@@ -194,10 +194,10 @@ function EventDetailModal({
   }
 
   async function handleSaveNote() {
-    if (!event.menuId || !noteText.trim()) return;
+    if (!event.mealPlanId || !noteText.trim()) return;
     setSavingNote(true);
     try {
-      await fetch(`/api/menus/${event.menuId}/items/${event.id}`, {
+      await fetch(`/api/meal-plans/${event.mealPlanId}/items/${event.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ notes: noteText.trim() }),
@@ -365,7 +365,7 @@ function EventDetailModal({
           )}
 
           {/* Notes — hidden while the convert slider / prompt is showing */}
-          {!canConvert && !convertedEvent && (isMenuRecipe ? (
+          {!canConvert && !convertedEvent && (isMealPlanRecipe ? (
             event.notes ? (
               <div className="rounded-lg bg-background border border-border/60 px-3 py-2.5">
                 <p className="text-xs font-medium text-muted mb-1">Cook notes</p>
@@ -409,12 +409,12 @@ function EventDetailModal({
                   <path d="M9 5l7 7-7 7" />
                 </svg>
               </Link>
-              {isMenuRecipe ? (
-                <Link href="/menus"
+              {isMealPlanRecipe ? (
+                <Link href="/meal-plans"
                   className="flex items-center gap-1 text-xs text-muted hover:text-text transition-colors"
                   onClick={onClose}
                 >
-                  Edit menu →
+                  Edit mealPlan →
                 </Link>
               ) : (
                 <button
@@ -449,9 +449,9 @@ function EventChip({
   onView: (e: CalendarEvent) => void;
   onDelete: (e: CalendarEvent) => void;
 }) {
-  const isMenuRecipe = event.type === "menu-recipe";
-  // Menu recipes look like a cook log if in the past, planned meal if future
-  const isSolid = event.type === "cook-log" || (isMenuRecipe && event.date <= localToday());
+  const isMealPlanRecipe = event.type === "meal-plan-recipe";
+  // MealPlan recipes look like a cook log if in the past, planned meal if future
+  const isSolid = event.type === "cook-log" || (isMealPlanRecipe && event.date <= localToday());
   return (
     <div
       className={cn(
@@ -470,8 +470,8 @@ function EventChip({
       >
         {event.recipeTitle}
       </button>
-      {/* × delete button — hidden for menu recipes */}
-      {!isMenuRecipe && (
+      {/* × delete button — hidden for mealPlan recipes */}
+      {!isMealPlanRecipe && (
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onDelete(event); }}
@@ -502,8 +502,8 @@ function WeekEventBlock({
   onView: (e: CalendarEvent) => void;
   onDelete: (e: CalendarEvent) => void;
 }) {
-  const isMenuRecipe = event.type === "menu-recipe";
-  const isSolid      = event.type === "cook-log" || (isMenuRecipe && event.date <= localToday());
+  const isMealPlanRecipe = event.type === "meal-plan-recipe";
+  const isSolid      = event.type === "cook-log" || (isMealPlanRecipe && event.date <= localToday());
 
   // 3+ events: compact pill (same as before)
   if (totalCount >= 3) {
@@ -567,8 +567,8 @@ function WeekEventBlock({
         </p>
       </div>
 
-      {/* Delete button — absolute, appears on hover; hidden for menu recipes */}
-      {!isMenuRecipe && (
+      {/* Delete button — absolute, appears on hover; hidden for mealPlan recipes */}
+      {!isMealPlanRecipe && (
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onDelete(event); }}
@@ -604,8 +604,8 @@ function MonthEventBlock({
   onView: (e: CalendarEvent) => void;
   onDelete: (e: CalendarEvent) => void;
 }) {
-  const isMenuRecipe = event.type === "menu-recipe";
-  const isSolid      = event.type === "cook-log" || (isMenuRecipe && event.date <= localToday());
+  const isMealPlanRecipe = event.type === "meal-plan-recipe";
+  const isSolid      = event.type === "cook-log" || (isMealPlanRecipe && event.date <= localToday());
 
   // 1 event: photo card filling the available cell space
   if (totalCount === 1) {
@@ -643,7 +643,7 @@ function MonthEventBlock({
             {event.recipeTitle}
           </p>
         </div>
-        {!isMenuRecipe && (
+        {!isMealPlanRecipe && (
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onDelete(event); }}
@@ -676,7 +676,7 @@ function MonthEventBlock({
       >
         {event.recipeTitle}
       </button>
-      {!isMenuRecipe && (
+      {!isMealPlanRecipe && (
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onDelete(event); }}
@@ -705,8 +705,8 @@ function EventCard({
   onView: (e: CalendarEvent) => void;
   onDelete: (e: CalendarEvent) => void;
 }) {
-  const isMenuRecipe = event.type === "menu-recipe";
-  const isSolid      = event.type === "cook-log" || (isMenuRecipe && event.date <= localToday());
+  const isMealPlanRecipe = event.type === "meal-plan-recipe";
+  const isSolid      = event.type === "cook-log" || (isMealPlanRecipe && event.date <= localToday());
   return (
     <div
       className={cn(
@@ -734,7 +734,7 @@ function EventCard({
           <p className="mt-1 text-xs text-muted line-clamp-2">{event.notes}</p>
         )}
       </div>
-      {!isMenuRecipe && (
+      {!isMealPlanRecipe && (
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onDelete(event); }}
@@ -813,7 +813,7 @@ function RecipePicker({
     if (planning) {
       setSubmitting(true); setError(null);
       try {
-        const res  = await fetch("/api/meal-plans", {
+        const res  = await fetch("/api/scheduled-meals", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ recipeId: recipe.id, plannedDate: targetDate }),
         });
@@ -1019,12 +1019,12 @@ function RecipePicker({
 // ---------------------------------------------------------------------------
 
 function MonthCell({
-  dateStr, isCurrentMonth, events, today, onAdd, onViewEvent, onDeleteEvent, menuBands,
+  dateStr, isCurrentMonth, events, today, onAdd, onViewEvent, onDeleteEvent, mealPlanBands,
 }: {
   dateStr: string; isCurrentMonth: boolean; events: CalendarEvent[];
   today: string; onAdd: (d: string) => void;
   onViewEvent: (e: CalendarEvent) => void; onDeleteEvent: (e: CalendarEvent) => void;
-  menuBands: MenuBand[];
+  mealPlanBands: MealPlanBand[];
 }) {
   const isToday  = dateStr === today;
   const dayNum   = Number(dateStr.split("-")[2]);
@@ -1032,8 +1032,8 @@ function MonthCell({
   const shown    = events.slice(0, MAX_SHOW);
   const overflow = events.length - MAX_SHOW;
 
-  const activeBands      = menuBands.filter((b) => dateStr >= b.startDate && dateStr <= b.endDate);
-  const bandColorIdx     = activeBands.length > 0 ? menuBands.indexOf(activeBands[0]) % BAND_COLORS.length : -1;
+  const activeBands      = mealPlanBands.filter((b) => dateStr >= b.startDate && dateStr <= b.endDate);
+  const bandColorIdx     = activeBands.length > 0 ? mealPlanBands.indexOf(activeBands[0]) % BAND_COLORS.length : -1;
   const bandColor        = bandColorIdx >= 0 ? BAND_COLORS[bandColorIdx] : null;
   const isFirstDayOfBand = activeBands.length > 0 && dateStr === activeBands[0].startDate;
 
@@ -1083,12 +1083,12 @@ function MonthCell({
 }
 
 function MonthView({
-  year, month, events, today, onAdd, onViewEvent, onDeleteEvent, menuBands,
+  year, month, events, today, onAdd, onViewEvent, onDeleteEvent, mealPlanBands,
 }: {
   year: number; month: number; events: CalendarEvent[]; today: string;
   onAdd: (d: string) => void;
   onViewEvent: (e: CalendarEvent) => void; onDeleteEvent: (e: CalendarEvent) => void;
-  menuBands: MenuBand[];
+  mealPlanBands: MealPlanBand[];
 }) {
   const grid = buildMonthGrid(year, month);
   const byDate = groupByDate(events);
@@ -1106,7 +1106,7 @@ function MonthView({
           <MonthCell key={i} {...cell}
             events={byDate.get(cell.dateStr) ?? []}
             today={today} onAdd={onAdd} onViewEvent={onViewEvent} onDeleteEvent={onDeleteEvent}
-            menuBands={menuBands} />
+            mealPlanBands={mealPlanBands} />
         ))}
       </div>
     </div>
@@ -1118,19 +1118,19 @@ function MonthView({
 // ---------------------------------------------------------------------------
 
 function WeekDayColumn({
-  dateStr, events, today, onAdd, onViewEvent, onDeleteEvent, menuBands,
+  dateStr, events, today, onAdd, onViewEvent, onDeleteEvent, mealPlanBands,
 }: {
   dateStr: string; events: CalendarEvent[]; today: string;
   onAdd: (d: string) => void;
   onViewEvent: (e: CalendarEvent) => void; onDeleteEvent: (e: CalendarEvent) => void;
-  menuBands: MenuBand[];
+  mealPlanBands: MealPlanBand[];
 }) {
   const isToday = dateStr === today;
   const [, m, d] = dateStr.split("-").map(Number);
   const dow = parseDate(dateStr).getDay();
 
-  const activeBands  = menuBands.filter((b) => dateStr >= b.startDate && dateStr <= b.endDate);
-  const bandColor    = activeBands.length > 0 ? BAND_COLORS[menuBands.indexOf(activeBands[0]) % BAND_COLORS.length] : null;
+  const activeBands  = mealPlanBands.filter((b) => dateStr >= b.startDate && dateStr <= b.endDate);
+  const bandColor    = activeBands.length > 0 ? BAND_COLORS[mealPlanBands.indexOf(activeBands[0]) % BAND_COLORS.length] : null;
   const isFirstDay   = activeBands.length > 0 && dateStr === activeBands[0].startDate;
 
   return (
@@ -1184,12 +1184,12 @@ function WeekDayColumn({
 }
 
 function WeekView({
-  weekDates, events, today, onAdd, onViewEvent, onDeleteEvent, menuBands,
+  weekDates, events, today, onAdd, onViewEvent, onDeleteEvent, mealPlanBands,
 }: {
   weekDates: string[]; events: CalendarEvent[]; today: string;
   onAdd: (d: string) => void;
   onViewEvent: (e: CalendarEvent) => void; onDeleteEvent: (e: CalendarEvent) => void;
-  menuBands: MenuBand[];
+  mealPlanBands: MealPlanBand[];
 }) {
   const byDate = groupByDate(events);
   return (
@@ -1199,7 +1199,7 @@ function WeekView({
           <WeekDayColumn key={dateStr} dateStr={dateStr}
             events={byDate.get(dateStr) ?? []}
             today={today} onAdd={onAdd} onViewEvent={onViewEvent} onDeleteEvent={onDeleteEvent}
-            menuBands={menuBands} />
+            mealPlanBands={mealPlanBands} />
         ))}
       </div>
     </div>
@@ -1352,7 +1352,7 @@ export function CalendarView() {
   const [anchorDate, setAnchorDate]     = useState(today);
   const [viewMode, setViewMode]         = useState<ViewMode>("week");
   const [events, setEvents]             = useState<CalendarEvent[]>([]);
-  const [menuBands, setMenuBands]       = useState<MenuBand[]>([]);
+  const [mealPlanBands, setMealPlanBands]       = useState<MealPlanBand[]>([]);
   const [loading, setLoading]           = useState(true);
   const [pickerDate, setPickerDate]     = useState<string | null>(null);
   const [viewingEvent, setViewingEvent] = useState<CalendarEvent | null>(null);
@@ -1377,7 +1377,7 @@ export function CalendarView() {
             .then((r) => r.json())
             .then((json) => ({
               events:    (json.data?.events    ?? []) as CalendarEvent[],
-              menuBands: (json.data?.menuBands ?? []) as MenuBand[],
+              mealPlanBands: (json.data?.mealPlanBands ?? []) as MealPlanBand[],
             }))
         )
       );
@@ -1386,13 +1386,13 @@ export function CalendarView() {
       for (const { events: evts } of results) for (const ev of evts) mergedEvents.set(ev.id, ev);
       setEvents(Array.from(mergedEvents.values()));
 
-      // Merge + deduplicate menuBands by menuId
-      const mergedBands = new Map<string, MenuBand>();
-      for (const { menuBands: bands } of results) for (const b of bands) mergedBands.set(b.menuId, b);
-      setMenuBands(Array.from(mergedBands.values()));
+      // Merge + deduplicate mealPlanBands by mealPlanId
+      const mergedBands = new Map<string, MealPlanBand>();
+      for (const { mealPlanBands: bands } of results) for (const b of bands) mergedBands.set(b.mealPlanId, b);
+      setMealPlanBands(Array.from(mergedBands.values()));
     } catch {
       setEvents([]);
-      setMenuBands([]);
+      setMealPlanBands([]);
     } finally {
       setLoading(false);
     }
@@ -1460,7 +1460,7 @@ export function CalendarView() {
     setEvents((prev) => [...prev, event]);
   }
 
-  // A plan/menu entry was converted into a cook log: drop the old chip and the
+  // A plan/mealPlan entry was converted into a cook log: drop the old chip and the
   // (possibly pre-existing) new one, then add the cook-log event in its place.
   function handleConverted(removeId: string, newEvent: CalendarEvent) {
     setEvents((prev) => [
@@ -1470,8 +1470,8 @@ export function CalendarView() {
   }
 
   async function handleDeleteEvent(event: CalendarEvent) {
-    // Menu recipe events are managed via the Menus page, not removed from the calendar directly
-    if (event.type === "menu-recipe") {
+    // MealPlan recipe events are managed via the MealPlans page, not removed from the calendar directly
+    if (event.type === "meal-plan-recipe") {
       setEvents((prev) => prev.filter((e) => e.id !== event.id));
       return;
     }
@@ -1480,7 +1480,7 @@ export function CalendarView() {
       if (event.type === "cook-log") {
         await fetch(`/api/recipes/${event.recipeId}/cook-log/${event.id}`, { method: "DELETE" });
       } else {
-        await fetch(`/api/meal-plans/${event.id}`, { method: "DELETE" });
+        await fetch(`/api/scheduled-meals/${event.id}`, { method: "DELETE" });
       }
     } catch {
       setEvents((prev) => [...prev, event]); // revert
@@ -1563,13 +1563,13 @@ export function CalendarView() {
           year={anchorY} month={anchorM}
           events={visibleEvents} today={today}
           onAdd={setPickerDate} onViewEvent={setViewingEvent} onDeleteEvent={handleDeleteEvent}
-          menuBands={menuBands}
+          mealPlanBands={mealPlanBands}
         />
       ) : viewMode === "week" ? (
         <WeekView
           weekDates={weekDates} events={visibleEvents} today={today}
           onAdd={setPickerDate} onViewEvent={setViewingEvent} onDeleteEvent={handleDeleteEvent}
-          menuBands={menuBands}
+          mealPlanBands={mealPlanBands}
         />
       ) : (
         <DayView

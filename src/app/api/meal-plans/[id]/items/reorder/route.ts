@@ -8,7 +8,7 @@ const reorderSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// PATCH /api/menus/[id]/items/reorder
+// PATCH /api/meal-plans/[id]/items/reorder
 // ---------------------------------------------------------------------------
 
 export async function PATCH(
@@ -18,14 +18,14 @@ export async function PATCH(
   const auth = await withAuth();
   if (!auth) return apiError("Unauthorized", 401);
 
-  const { id: menuId } = await params;
+  const { id: mealPlanId } = await params;
 
-  const menu = await prisma.menu.findUnique({
-    where: { id: menuId },
+  const mealPlan = await prisma.mealPlan.findUnique({
+    where: { id: mealPlanId },
     include: { items: { select: { id: true } } },
   });
-  if (!menu) return apiError("Menu not found", 404);
-  if (menu.userId !== auth.user.id) return apiError("Forbidden", 403);
+  if (!mealPlan) return apiError("MealPlan not found", 404);
+  if (mealPlan.userId !== auth.user.id) return apiError("Forbidden", 403);
 
   let body: unknown;
   try { body = await request.json(); } catch { return apiError("Invalid body", 400); }
@@ -35,16 +35,16 @@ export async function PATCH(
 
   const { order } = parsed.data;
 
-  // Validate all ids belong to this menu
-  const menuItemIds = new Set(menu.items.map((it) => it.id));
+  // Validate all ids belong to this mealPlan
+  const mealPlanItemIds = new Set(mealPlan.items.map((it) => it.id));
   for (const itemId of order) {
-    if (!menuItemIds.has(itemId)) return apiError(`Item ${itemId} does not belong to this menu`, 400);
+    if (!mealPlanItemIds.has(itemId)) return apiError(`Item ${itemId} does not belong to this mealPlan`, 400);
   }
 
   // Bulk update sort orders
   await Promise.all(
     order.map((itemId, idx) =>
-      prisma.menuItem.update({
+      prisma.mealPlanItem.update({
         where: { id: itemId },
         data: { sortOrder: idx },
       })

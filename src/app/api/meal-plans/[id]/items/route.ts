@@ -18,7 +18,7 @@ const addItemSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/menus/[id]/items
+// POST /api/meal-plans/[id]/items
 // ---------------------------------------------------------------------------
 
 export async function POST(
@@ -28,17 +28,17 @@ export async function POST(
   const auth = await withAuth();
   if (!auth) return apiError("Unauthorized", 401);
 
-  const { id: menuId } = await params;
+  const { id: mealPlanId } = await params;
 
-  const menu = await prisma.menu.findUnique({
-    where: { id: menuId },
+  const mealPlan = await prisma.mealPlan.findUnique({
+    where: { id: mealPlanId },
     include: { items: { select: { id: true } } },
   });
-  if (!menu) return apiError("Menu not found", 404);
-  if (menu.userId !== auth.user.id) return apiError("Forbidden", 403);
+  if (!mealPlan) return apiError("MealPlan not found", 404);
+  if (mealPlan.userId !== auth.user.id) return apiError("Forbidden", 403);
 
-  if (menu.items.length >= 10) {
-    return apiError("A menu can have at most 10 recipes", 400);
+  if (mealPlan.items.length >= 10) {
+    return apiError("A mealPlan can have at most 10 recipes", 400);
   }
 
   let body: unknown;
@@ -66,10 +66,10 @@ export async function POST(
   });
   if (!recipe || recipe.userId !== auth.user.id) return apiError("Recipe not found", 404);
 
-  const nextOrder = menu.items.length;
-  const item = await prisma.menuItem.create({
+  const nextOrder = mealPlan.items.length;
+  const item = await prisma.mealPlanItem.create({
     data: {
-      menuId,
+      mealPlanId,
       recipeId,
       servings: servings ?? recipe.currentServings,
       cookDate: cookDate ? new Date(cookDate) : null,

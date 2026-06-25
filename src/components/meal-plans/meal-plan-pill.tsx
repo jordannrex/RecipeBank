@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import type { MenuSummary } from "@/types/menu";
+import type { MealPlanSummary } from "@/types/meal-plan";
 
 function formatDateRange(startDate: string, endDate: string | null): string {
   const fmtOpts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
@@ -47,33 +47,33 @@ function PhotoThumb({ url }: { url: string | null }) {
 }
 
 type Props = {
-  menu: MenuSummary;
+  mealPlan: MealPlanSummary;
   onClick: () => void;
   onEdit: () => void;
   onDelete: () => void;
 };
 
-export function MenuPill({ menu, onClick, onEdit, onDelete }: Props) {
+export function MealPlanPill({ mealPlan, onClick, onEdit, onDelete }: Props) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const photoRows = buildPhotoRows(menu.recipePhotoUrls);
+  const photoRows = buildPhotoRows(mealPlan.recipePhotoUrls);
   const hasTwoRows = photoRows.length === 2;
 
   // Subtitle: servings [· cost]
   const subtitleParts: string[] = [];
-  subtitleParts.push(`${menu.totalServings} serving${menu.totalServings !== 1 ? "s" : ""}`);
-  if (menu.totalCost) {
-    subtitleParts.push(`${menu.isPartialCost ? "~" : ""}${menu.totalCost}`);
+  subtitleParts.push(`${mealPlan.totalServings} serving${mealPlan.totalServings !== 1 ? "s" : ""}`);
+  if (mealPlan.totalCost) {
+    subtitleParts.push(`${mealPlan.isPartialCost ? "~" : ""}${mealPlan.totalCost}`);
   }
 
   // Date line
   let dateLine: { label: string; highlight: boolean } | null = null;
-  if (menu.currentUsage) {
-    const dateStr = formatDateRange(menu.currentUsage.startDate, menu.currentUsage.endDate);
+  if (mealPlan.currentUsage) {
+    const dateStr = formatDateRange(mealPlan.currentUsage.startDate, mealPlan.currentUsage.endDate);
     dateLine = { label: `Current · ${dateStr}`, highlight: true };
-  } else if (menu.nextPlannedUsage) {
-    const dateStr = formatDateRange(menu.nextPlannedUsage.startDate, menu.nextPlannedUsage.endDate);
+  } else if (mealPlan.nextPlannedUsage) {
+    const dateStr = formatDateRange(mealPlan.nextPlannedUsage.startDate, mealPlan.nextPlannedUsage.endDate);
     dateLine = { label: `Planned · ${dateStr}`, highlight: false };
   }
 
@@ -91,10 +91,10 @@ export function MenuPill({ menu, onClick, onEdit, onDelete }: Props) {
       <div className="flex items-center gap-4">
         {/* Left: text content */}
         <div className={cn("flex-1 min-w-0 flex flex-col justify-center", hasTwoRows ? "gap-0.5" : "gap-0.5")}>
-          <p className="text-base font-bold text-text truncate">{menu.title}</p>
+          <p className="text-base font-bold text-text truncate">{mealPlan.title}</p>
           <p className="text-sm text-muted truncate">
             {subtitleParts.join(" · ")}
-            {!menu.totalCost && menu.itemCount > 0 && (
+            {!mealPlan.totalCost && mealPlan.itemCount > 0 && (
               <span className="text-muted/60"> · No price data</span>
             )}
           </p>
@@ -103,8 +103,8 @@ export function MenuPill({ menu, onClick, onEdit, onDelete }: Props) {
               {dateLine.label}
             </p>
           )}
-          {menu.description && (
-            <p className="text-xs text-muted truncate mt-0.5">{menu.description}</p>
+          {mealPlan.description && (
+            <p className="text-xs text-muted truncate mt-0.5">{mealPlan.description}</p>
           )}
         </div>
 
@@ -131,7 +131,7 @@ export function MenuPill({ menu, onClick, onEdit, onDelete }: Props) {
             <button
               type="button"
               onClick={() => { setDropdownOpen((v) => !v); setConfirmDelete(false); }}
-              aria-label="Menu options"
+              aria-label="Meal plan options"
               className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-card-hover hover:text-text transition-colors"
             >
               <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
@@ -172,7 +172,7 @@ export function MenuPill({ menu, onClick, onEdit, onDelete }: Props) {
 
           {/* Recipe count badge */}
           <span className="inline-flex items-center gap-1 rounded-full bg-border/40 px-2 py-0.5 text-xs text-muted whitespace-nowrap">
-            {menu.itemCount} recipe{menu.itemCount !== 1 ? "s" : ""}
+            {mealPlan.itemCount} recipe{mealPlan.itemCount !== 1 ? "s" : ""}
           </span>
         </div>
       </div>

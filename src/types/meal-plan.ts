@@ -1,4 +1,4 @@
-export type MenuUsageRecord = {
+export type MealPlanUsageRecord = {
   id: string;
   startDate: string;        // YYYY-MM-DD
   endDate: string | null;   // YYYY-MM-DD
@@ -7,7 +7,7 @@ export type MenuUsageRecord = {
   createdAt: string;
 };
 
-export type MenuSummary = {
+export type MealPlanSummary = {
   id: string;
   title: string;
   description: string | null;
@@ -17,13 +17,13 @@ export type MenuSummary = {
   itemCount: number;
   recipePhotoUrls: (string | null)[];   // one per item, in sortOrder
   usageCount: number;                    // total logged usages
-  currentUsage: MenuUsageRecord | null;  // active right now (started, not ended)
-  nextPlannedUsage: MenuUsageRecord | null; // next future planned usage
+  currentUsage: MealPlanUsageRecord | null;  // active right now (started, not ended)
+  nextPlannedUsage: MealPlanUsageRecord | null; // next future planned usage
   updatedAt: string;
 };
 
-export type MenuRecipeItem = {
-  id: string;          // MenuItem id
+export type MealPlanRecipeItem = {
+  id: string;          // MealPlanItem id
   sortOrder: number;
   servings: number;
   cookDate: string | null;   // YYYY-MM-DD
@@ -35,17 +35,17 @@ export type MenuRecipeItem = {
     currentServings: number;
     cuisine: string | null;
     dishType: string | null;
-    estimatedCost: string | null;  // scaled to menuItem.servings
+    estimatedCost: string | null;  // scaled to mealPlanItem.servings
   };
 };
 
-export type MenuDetail = MenuSummary & {
-  items: MenuRecipeItem[];
-  allUsages: MenuUsageRecord[];
+export type MealPlanDetail = MealPlanSummary & {
+  items: MealPlanRecipeItem[];
+  allUsages: MealPlanUsageRecord[];
 };
 
-export type MenuBand = {
-  menuId: string;
+export type MealPlanBand = {
+  mealPlanId: string;
   title: string;
   startDate: string;   // YYYY-MM-DD
   endDate: string;     // YYYY-MM-DD

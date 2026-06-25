@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 /**
  * Turn *past* meal plans into reality.
  *
- * Any MealPlan whose planned day has already gone by is converted into a real
+ * Any ScheduledMeal whose planned day has already gone by is converted into a real
  * CookLog with an empty note, then removed. This lets users skip the calendar's
  * Plan→Log toggle entirely: if they just let the day pass, the plan still
  * becomes a logged cook (counting toward cookCount / lastCookedAt and showing
@@ -17,13 +17,13 @@ import { prisma } from "@/lib/db";
  *
  * Returns the number of plans realized.
  */
-export async function realizePastMealPlans(userId: string): Promise<number> {
+export async function realizePastScheduledMeals(userId: string): Promise<number> {
   // Midnight UTC of today — plans dated strictly before this have "passed".
   // Matches how plannedDate (@db.Date) is stored and how the cook-log routes
   // compute "today" in UTC.
   const todayUtc = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
 
-  const duePlans = await prisma.mealPlan.findMany({
+  const duePlans = await prisma.scheduledMeal.findMany({
     where: { userId, plannedDate: { lt: todayUtc } },
     select: { id: true, recipeId: true, plannedDate: true },
     orderBy: { plannedDate: "asc" },
@@ -37,7 +37,7 @@ export async function realizePastMealPlans(userId: string): Promise<number> {
     for (const plan of duePlans) {
       // Claim the plan by deleting it; if it's already gone (a concurrent
       // request realized it first), skip so we don't create a duplicate log.
-      const del = await tx.mealPlan.deleteMany({ where: { id: plan.id } });
+      const del = await tx.scheduledMeal.deleteMany({ where: { id: plan.id } });
       if (del.count === 0) continue;
 
       await tx.cookLog.create({

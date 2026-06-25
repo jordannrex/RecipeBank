@@ -3,16 +3,16 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { parseCost } from "@/lib/cost";
-import { MenuPill } from "@/components/menus/menu-pill";
-import { MenuDetailModal } from "@/components/menus/menu-detail-modal";
-import { CreateMenuModal } from "@/components/menus/create-menu-modal";
-import type { MenuDetail, MenuSummary } from "@/types/menu";
+import { MealPlanPill } from "@/components/meal-plans/meal-plan-pill";
+import { MealPlanDetailModal } from "@/components/meal-plans/meal-plan-detail-modal";
+import { CreateMealPlanModal } from "@/components/meal-plans/create-meal-plan-modal";
+import type { MealPlanDetail, MealPlanSummary } from "@/types/meal-plan";
 
 // ---------------------------------------------------------------------------
 // Skeleton
 // ---------------------------------------------------------------------------
 
-function MenuPillSkeleton() {
+function MealPlanPillSkeleton() {
   return (
     <div className="animate-pulse rounded-2xl border border-border bg-card px-5 py-4">
       <div className="flex items-center justify-between">
@@ -35,17 +35,17 @@ type SortOption = "default" | "alpha" | "most-used" | "most-recipes" | "highest-
 type FilterOption = "all" | "past" | "planned";
 
 // ---------------------------------------------------------------------------
-// Menus page
+// MealPlans page
 // ---------------------------------------------------------------------------
 
-export default function MenusPage() {
-  const [menus, setMenus] = useState<MenuSummary[]>([]);
+export default function MealPlansPage() {
+  const [mealPlans, setMealPlans] = useState<MealPlanSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [showCreate, setShowCreate] = useState(false);
-  const [viewingMenuId, setViewingMenuId] = useState<string | null>(null);
-  const [viewingMenuMode, setViewingMenuMode] = useState<"view" | "edit">("view");
+  const [viewingMealPlanId, setViewingMealPlanId] = useState<string | null>(null);
+  const [viewingMealPlanMode, setViewingMealPlanMode] = useState<"view" | "edit">("view");
 
   // Sort + Filter state
   const [sortOption, setSortOption] = useState<SortOption>("default");
@@ -59,14 +59,14 @@ export default function MenusPage() {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetch("/api/menus")
+    fetch("/api/meal-plans")
       .then((r) => r.json())
       .then((json) => {
         if (cancelled) return;
         if (json.error) { setError(json.error); return; }
-        setMenus((json.data ?? []) as MenuSummary[]);
+        setMealPlans((json.data ?? []) as MealPlanSummary[]);
       })
-      .catch(() => { if (!cancelled) setError("Failed to load menus."); })
+      .catch(() => { if (!cancelled) setError("Failed to load meal plans."); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
@@ -81,18 +81,18 @@ export default function MenusPage() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  function handleCreated(menu: MenuDetail) {
-    setMenus((prev) => [menu, ...prev]);
+  function handleCreated(mealPlan: MealPlanDetail) {
+    setMealPlans((prev) => [mealPlan, ...prev]);
   }
 
-  function handleUpdated(updated: MenuSummary) {
-    setMenus((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
+  function handleUpdated(updated: MealPlanSummary) {
+    setMealPlans((prev) => prev.map((m) => (m.id === updated.id ? updated : m)));
   }
 
   async function handleDelete(id: string) {
-    setMenus((prev) => prev.filter((m) => m.id !== id));
-    setViewingMenuId(null);
-    await fetch(`/api/menus/${id}`, { method: "DELETE" });
+    setMealPlans((prev) => prev.filter((m) => m.id !== id));
+    setViewingMealPlanId(null);
+    await fetch(`/api/meal-plans/${id}`, { method: "DELETE" });
   }
 
   // ---------------------------------------------------------------------------
@@ -101,14 +101,14 @@ export default function MenusPage() {
 
   const isDefaultView = sortOption === "default" && filterOption === "all";
 
-  function applyFilter(list: MenuSummary[]): MenuSummary[] {
+  function applyFilter(list: MealPlanSummary[]): MealPlanSummary[] {
     if (filterOption === "all") return list;
     if (filterOption === "past") return list.filter((m) => m.usageCount > 0);
     if (filterOption === "planned") return list.filter((m) => m.nextPlannedUsage !== null || m.currentUsage !== null);
     return list;
   }
 
-  function applySort(list: MenuSummary[]): MenuSummary[] {
+  function applySort(list: MealPlanSummary[]): MealPlanSummary[] {
     if (sortOption === "default") {
       // Sort by updatedAt DESC
       return [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -126,7 +126,7 @@ export default function MenusPage() {
       return [...list].sort((a, b) => {
         const ca = parseCost(a.totalCost);
         const cb = parseCost(b.totalCost);
-        // Menus without a cost estimate sort to the bottom; ties broken by title.
+        // MealPlans without a cost estimate sort to the bottom; ties broken by title.
         if (ca === null && cb === null) return a.title.localeCompare(b.title);
         if (ca === null) return 1;
         if (cb === null) return -1;
@@ -137,12 +137,12 @@ export default function MenusPage() {
   }
 
   // Filtered + sorted flat list
-  const processedMenus = applySort(applyFilter(menus));
+  const processedMealPlans = applySort(applyFilter(mealPlans));
 
   // For default view: split into current + others
-  const currentMenus = isDefaultView ? menus.filter((m) => m.currentUsage !== null) : [];
-  const otherMenus = isDefaultView
-    ? applySort(menus.filter((m) => m.currentUsage === null))
+  const currentMealPlans = isDefaultView ? mealPlans.filter((m) => m.currentUsage !== null) : [];
+  const otherMealPlans = isDefaultView
+    ? applySort(mealPlans.filter((m) => m.currentUsage === null))
     : [];
 
   const sortLabels: Record<SortOption, string> = {
@@ -154,9 +154,9 @@ export default function MenusPage() {
   };
 
   const filterLabels: Record<FilterOption, string> = {
-    all: "All Menus",
-    past: "Past Menus",
-    planned: "Planned Menus",
+    all: "All Meal Plans",
+    past: "Past Meal Plans",
+    planned: "Planned Meal Plans",
   };
 
   const sortActive = sortOption !== "default";
@@ -166,7 +166,7 @@ export default function MenusPage() {
     <div className="space-y-6">
       {/* Page header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-text">Menus</h1>
+        <h1 className="text-2xl font-bold text-text">Meal Plans</h1>
         <button
           type="button"
           onClick={() => setShowCreate(true)}
@@ -175,29 +175,29 @@ export default function MenusPage() {
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
             <path d="M12 5v14M5 12h14" />
           </svg>
-          New Menu
+          New Meal Plan
         </button>
       </div>
 
       {/* Content */}
       {loading ? (
         <div className="space-y-3">
-          {[1, 2, 3].map((n) => <MenuPillSkeleton key={n} />)}
+          {[1, 2, 3].map((n) => <MealPlanPillSkeleton key={n} />)}
         </div>
       ) : error ? (
         <div className="rounded-2xl border border-border bg-card px-5 py-8 text-center">
           <p className="text-sm text-destructive">{error}</p>
         </div>
-      ) : menus.length === 0 ? (
+      ) : mealPlans.length === 0 ? (
         <div className="rounded-2xl border border-border bg-card px-5 py-16 text-center">
-          <p className="text-lg font-semibold text-text">No menus yet</p>
-          <p className="mt-1 text-sm text-muted">Create your first menu to organize your meal plans.</p>
+          <p className="text-lg font-semibold text-text">No meal plans yet</p>
+          <p className="mt-1 text-sm text-muted">Create your first meal plan to organize your meals.</p>
           <button
             type="button"
             onClick={() => setShowCreate(true)}
             className="mt-4 rounded-lg bg-highlight px-5 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
           >
-            Create your first menu
+            Create your first meal plan
           </button>
         </div>
       ) : (
@@ -295,38 +295,38 @@ export default function MenusPage() {
             </div>
           </div>
 
-          {/* Menu list */}
+          {/* MealPlan list */}
           {isDefaultView ? (
             <div className="space-y-6">
-              {/* Current menu section */}
-              {currentMenus.length > 0 && (
+              {/* Current meal plan section */}
+              {currentMealPlans.length > 0 && (
                 <div className="space-y-3">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-muted">Current Menu</p>
-                  {currentMenus.map((menu) => (
-                    <MenuPill
-                      key={menu.id}
-                      menu={menu}
-                      onClick={() => { setViewingMenuId(menu.id); setViewingMenuMode("view"); }}
-                      onEdit={() => { setViewingMenuId(menu.id); setViewingMenuMode("edit"); }}
-                      onDelete={() => handleDelete(menu.id)}
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted">Current Meal Plan</p>
+                  {currentMealPlans.map((mealPlan) => (
+                    <MealPlanPill
+                      key={mealPlan.id}
+                      mealPlan={mealPlan}
+                      onClick={() => { setViewingMealPlanId(mealPlan.id); setViewingMealPlanMode("view"); }}
+                      onEdit={() => { setViewingMealPlanId(mealPlan.id); setViewingMealPlanMode("edit"); }}
+                      onDelete={() => handleDelete(mealPlan.id)}
                     />
                   ))}
                 </div>
               )}
 
-              {/* Other menus section */}
-              {otherMenus.length > 0 && (
+              {/* Other meal plans section */}
+              {otherMealPlans.length > 0 && (
                 <div className="space-y-3">
-                  {currentMenus.length > 0 && (
-                    <p className="text-xs font-semibold uppercase tracking-wider text-muted">Other Menus</p>
+                  {currentMealPlans.length > 0 && (
+                    <p className="text-xs font-semibold uppercase tracking-wider text-muted">Other Meal Plans</p>
                   )}
-                  {otherMenus.map((menu) => (
-                    <MenuPill
-                      key={menu.id}
-                      menu={menu}
-                      onClick={() => { setViewingMenuId(menu.id); setViewingMenuMode("view"); }}
-                      onEdit={() => { setViewingMenuId(menu.id); setViewingMenuMode("edit"); }}
-                      onDelete={() => handleDelete(menu.id)}
+                  {otherMealPlans.map((mealPlan) => (
+                    <MealPlanPill
+                      key={mealPlan.id}
+                      mealPlan={mealPlan}
+                      onClick={() => { setViewingMealPlanId(mealPlan.id); setViewingMealPlanMode("view"); }}
+                      onEdit={() => { setViewingMealPlanId(mealPlan.id); setViewingMealPlanMode("edit"); }}
+                      onDelete={() => handleDelete(mealPlan.id)}
                     />
                   ))}
                 </div>
@@ -335,18 +335,18 @@ export default function MenusPage() {
           ) : (
             /* Flat filtered/sorted list */
             <div className="space-y-3">
-              {processedMenus.length === 0 ? (
+              {processedMealPlans.length === 0 ? (
                 <div className="rounded-2xl border border-border bg-card px-5 py-10 text-center">
-                  <p className="text-sm text-muted">No menus match this filter.</p>
+                  <p className="text-sm text-muted">No meal plans match this filter.</p>
                 </div>
               ) : (
-                processedMenus.map((menu) => (
-                  <MenuPill
-                    key={menu.id}
-                    menu={menu}
-                    onClick={() => { setViewingMenuId(menu.id); setViewingMenuMode("view"); }}
-                    onEdit={() => { setViewingMenuId(menu.id); setViewingMenuMode("edit"); }}
-                    onDelete={() => handleDelete(menu.id)}
+                processedMealPlans.map((mealPlan) => (
+                  <MealPlanPill
+                    key={mealPlan.id}
+                    mealPlan={mealPlan}
+                    onClick={() => { setViewingMealPlanId(mealPlan.id); setViewingMealPlanMode("view"); }}
+                    onEdit={() => { setViewingMealPlanId(mealPlan.id); setViewingMealPlanMode("edit"); }}
+                    onDelete={() => handleDelete(mealPlan.id)}
                   />
                 ))
               )}
@@ -357,18 +357,18 @@ export default function MenusPage() {
 
       {/* Create modal */}
       {showCreate && (
-        <CreateMenuModal
+        <CreateMealPlanModal
           onClose={() => setShowCreate(false)}
-          onCreated={(menu) => { handleCreated(menu); setShowCreate(false); }}
+          onCreated={(mealPlan) => { handleCreated(mealPlan); setShowCreate(false); }}
         />
       )}
 
       {/* Detail modal */}
-      {viewingMenuId && (
-        <MenuDetailModal
-          menuId={viewingMenuId}
-          initialMode={viewingMenuMode}
-          onClose={() => setViewingMenuId(null)}
+      {viewingMealPlanId && (
+        <MealPlanDetailModal
+          mealPlanId={viewingMealPlanId}
+          initialMode={viewingMealPlanMode}
+          onClose={() => setViewingMealPlanId(null)}
           onUpdated={handleUpdated}
           onDeleted={(id) => handleDelete(id)}
         />

@@ -9,9 +9,9 @@ import type { CalendarEvent } from "@/types/calendar";
 //
 // Converts a *planned* calendar entry into an actual cook log on its planned
 // day. Two sources are supported:
-//   - "meal-plan":   deletes the MealPlan row.
-//   - "menu-recipe": clears that MenuItem's cookDate (keeps the recipe in its
-//                    menu but unschedules this date) so the calendar shows the
+//   - "scheduled-meal":   deletes the ScheduledMeal row.
+//   - "meal-plan-recipe": clears that MealPlanItem's cookDate (keeps the recipe in its
+//                    mealPlan but unschedules this date) so the calendar shows the
 //                    cook log instead of a duplicate planned chip.
 //
 // In both cases a CookLog is created through the normal path, so recipe
@@ -23,7 +23,7 @@ import type { CalendarEvent } from "@/types/calendar";
 // ---------------------------------------------------------------------------
 
 const bodySchema = z.object({
-  source: z.enum(["meal-plan", "menu-recipe"]),
+  source: z.enum(["scheduled-meal", "meal-plan-recipe"]),
   id:     z.string().min(1),
   notes:  z.string().max(5_000).nullable().optional(),
 });
@@ -53,8 +53,8 @@ export async function POST(request: Request) {
   let recipeTitle: string;
   let recipePhotoUrl: string | null;
 
-  if (source === "meal-plan") {
-    const plan = await prisma.mealPlan.findUnique({
+  if (source === "scheduled-meal") {
+    const plan = await prisma.scheduledMeal.findUnique({
       where: { id },
       select: {
         userId: true,
@@ -70,18 +70,18 @@ export async function POST(request: Request) {
     recipeTitle    = plan.recipe.title;
     recipePhotoUrl = plan.recipe.photoUrl;
   } else {
-    const item = await prisma.menuItem.findUnique({
+    const item = await prisma.mealPlanItem.findUnique({
       where: { id },
       select: {
         cookDate: true,
         recipeId: true,
-        menu:   { select: { userId: true } },
+        mealPlan:   { select: { userId: true } },
         recipe: { select: { title: true, photoUrl: true } },
       },
     });
-    if (!item) return apiError("Menu item not found", 404);
-    if (item.menu.userId !== auth.user.id) return apiError("Forbidden", 403);
-    if (!item.cookDate) return apiError("This menu item isn't scheduled on a day", 400);
+    if (!item) return apiError("MealPlan item not found", 404);
+    if (item.mealPlan.userId !== auth.user.id) return apiError("Forbidden", 403);
+    if (!item.cookDate) return apiError("This mealPlan item isn't scheduled on a day", 400);
     recipeId       = item.recipeId;
     cookedAt       = item.cookDate;
     recipeTitle    = item.recipe.title;
@@ -101,11 +101,11 @@ export async function POST(request: Request) {
       data: { recipeId, userId: auth.user.id, cookedAt, notes: notes ?? null },
     });
 
-    if (source === "meal-plan") {
-      await tx.mealPlan.delete({ where: { id } });
+    if (source === "scheduled-meal") {
+      await tx.scheduledMeal.delete({ where: { id } });
     } else {
-      // Unschedule only this calendar instance; the recipe stays in its menu.
-      await tx.menuItem.update({ where: { id }, data: { cookDate: null } });
+      // Unschedule only this calendar instance; the recipe stays in its mealPlan.
+      await tx.mealPlanItem.update({ where: { id }, data: { cookDate: null } });
     }
 
     // Keep cookCount / lastCookedAt in sync (mirrors the cook-log POST route).

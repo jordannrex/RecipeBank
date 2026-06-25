@@ -1,9 +1,9 @@
-// Shared cost aggregation for recipes and menus.
+// Shared cost aggregation for recipes and mealPlans.
 //
 // Built on calcIngredientCost (src/lib/units.ts), which proportionally prices a
 // single ingredient from a store package size + price. This module sums those
 // per-ingredient costs the same way the recipe Price Calculator does, and adds
-// menu-level aggregation so the Menus API and client stay consistent.
+// mealPlan-level aggregation so the MealPlans API and client stay consistent.
 
 import { calcIngredientCost } from "./units";
 
@@ -50,7 +50,7 @@ export function computeIngredientsCost(ingredients: CostIngredient[], scale = 1)
     const storePkgQty = toStr(ing.storePkgQty);
     const price = toStr(ing.price);
     // No pricing entered for this ingredient: it can't contribute, but it still
-    // counts toward `total` so the menu is correctly flagged as a partial estimate.
+    // counts toward `total` so the mealPlan is correctly flagged as a partial estimate.
     if (!storePkgQty && !price) continue;
 
     const result = calcIngredientCost(
@@ -69,7 +69,7 @@ export function computeIngredientsCost(ingredients: CostIngredient[], scale = 1)
   return { cost, okCount, total };
 }
 
-export type MenuCostItemInput = {
+export type MealPlanCostItemInput = {
   servings: number;
   recipe: {
     servings: number;
@@ -78,13 +78,13 @@ export type MenuCostItemInput = {
 };
 
 /**
- * Aggregate cost across every recipe in a menu. Each item is scaled to its own
+ * Aggregate cost across every recipe in a mealPlan. Each item is scaled to its own
  * `servings` relative to the recipe's base `servings`.
  *
- * Returns per-item costs (aligned to the input order), the menu total, and
+ * Returns per-item costs (aligned to the input order), the mealPlan total, and
  * whether the total is partial (some ingredient somewhere isn't priced).
  */
-export function computeMenuCost(items: MenuCostItemInput[]) {
+export function computeMealPlanCost(items: MealPlanCostItemInput[]) {
   const itemCosts: (number | null)[] = [];
   let totalCost: number | null = null;
   let okTotal = 0;

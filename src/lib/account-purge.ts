@@ -2,7 +2,7 @@ import { prisma } from "@/lib/db";
 
 /**
  * Permanently delete every account whose 30-day deletion grace period has
- * elapsed. Cascades remove all of the user's recipes, menus, shopping lists,
+ * elapsed. Cascades remove all of the user's recipes, mealPlans, shopping lists,
  * sessions, etc. Returns the number of accounts purged.
  *
  * Invoked by the protected cron endpoint (POST /api/cron/purge-deletions) and

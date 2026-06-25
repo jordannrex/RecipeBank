@@ -143,11 +143,11 @@ function MiniCalendar({ recipeId }: { recipeId: string }) {
     }
   }
 
-  async function handleMealPlan(date: string) {
+  async function handleScheduledMeal(date: string) {
     setSaving(true);
     setFeedback(null);
     try {
-      const res  = await fetch("/api/meal-plans", {
+      const res  = await fetch("/api/scheduled-meals", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ recipeId, plannedDate: date }),
       });
@@ -285,7 +285,7 @@ function MiniCalendar({ recipeId }: { recipeId: string }) {
         </form>
       )}
 
-      {/* Meal-plan confirmation (future dates) */}
+      {/* Scheduled-meal confirmation (future dates) */}
       {action === "planning" && selected && (
         <div className="space-y-2 border-t border-border pt-3">
           <p className="text-xs font-medium text-text">
@@ -295,7 +295,7 @@ function MiniCalendar({ recipeId }: { recipeId: string }) {
             <button
               type="button"
               disabled={saving}
-              onClick={() => handleMealPlan(selected)}
+              onClick={() => handleScheduledMeal(selected)}
               className="rounded-lg bg-highlight px-4 py-1.5 text-xs font-semibold text-white hover:opacity-90 transition-opacity disabled:opacity-50"
             >
               {saving ? "Saving…" : "Confirm"}

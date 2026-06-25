@@ -19,7 +19,7 @@ const patchItemSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// PATCH /api/menus/[id]/items/[itemId]
+// PATCH /api/meal-plans/[id]/items/[itemId]
 // ---------------------------------------------------------------------------
 
 export async function PATCH(
@@ -29,20 +29,20 @@ export async function PATCH(
   const auth = await withAuth();
   if (!auth) return apiError("Unauthorized", 401);
 
-  const { id: menuId, itemId } = await params;
+  const { id: mealPlanId, itemId } = await params;
 
-  const menu = await prisma.menu.findUnique({
-    where: { id: menuId },
+  const mealPlan = await prisma.mealPlan.findUnique({
+    where: { id: mealPlanId },
     select: { userId: true },
   });
-  if (!menu) return apiError("Menu not found", 404);
-  if (menu.userId !== auth.user.id) return apiError("Forbidden", 403);
+  if (!mealPlan) return apiError("MealPlan not found", 404);
+  if (mealPlan.userId !== auth.user.id) return apiError("Forbidden", 403);
 
-  const existingItem = await prisma.menuItem.findUnique({
+  const existingItem = await prisma.mealPlanItem.findUnique({
     where: { id: itemId },
-    select: { menuId: true },
+    select: { mealPlanId: true },
   });
-  if (!existingItem || existingItem.menuId !== menuId) return apiError("Item not found", 404);
+  if (!existingItem || existingItem.mealPlanId !== mealPlanId) return apiError("Item not found", 404);
 
   let body: unknown;
   try { body = await request.json(); } catch { return apiError("Invalid body", 400); }
@@ -52,7 +52,7 @@ export async function PATCH(
 
   const { servings, cookDate, notes, sortOrder } = parsed.data;
 
-  const updated = await prisma.menuItem.update({
+  const updated = await prisma.mealPlanItem.update({
     where: { id: itemId },
     data: {
       ...(servings !== undefined ? { servings: Math.max(1, servings) } : {}),
@@ -102,7 +102,7 @@ export async function PATCH(
 }
 
 // ---------------------------------------------------------------------------
-// DELETE /api/menus/[id]/items/[itemId]
+// DELETE /api/meal-plans/[id]/items/[itemId]
 // ---------------------------------------------------------------------------
 
 export async function DELETE(
@@ -112,21 +112,21 @@ export async function DELETE(
   const auth = await withAuth();
   if (!auth) return apiError("Unauthorized", 401);
 
-  const { id: menuId, itemId } = await params;
+  const { id: mealPlanId, itemId } = await params;
 
-  const menu = await prisma.menu.findUnique({
-    where: { id: menuId },
+  const mealPlan = await prisma.mealPlan.findUnique({
+    where: { id: mealPlanId },
     select: { userId: true },
   });
-  if (!menu) return apiError("Menu not found", 404);
-  if (menu.userId !== auth.user.id) return apiError("Forbidden", 403);
+  if (!mealPlan) return apiError("MealPlan not found", 404);
+  if (mealPlan.userId !== auth.user.id) return apiError("Forbidden", 403);
 
-  const item = await prisma.menuItem.findUnique({
+  const item = await prisma.mealPlanItem.findUnique({
     where: { id: itemId },
-    select: { menuId: true },
+    select: { mealPlanId: true },
   });
-  if (!item || item.menuId !== menuId) return apiError("Item not found", 404);
+  if (!item || item.mealPlanId !== mealPlanId) return apiError("Item not found", 404);
 
-  await prisma.menuItem.delete({ where: { id: itemId } });
+  await prisma.mealPlanItem.delete({ where: { id: itemId } });
   return apiSuccess({ deleted: true });
 }

@@ -16,43 +16,43 @@ datasource db {
 // ---------------------------------------------------------------------------
 
 model User {
-  id              String    @id @default(cuid())
-  email           String    @unique
-  username        String    @unique @db.VarChar(64)
-  displayName     String    @map("display_name")
-  passwordHash    String    @map("password_hash")
-  avatarUrl       String?   @map("avatar_url")
-  avatarConfig    Json?     @map("avatar_config")
-  avatarHistory   Json?     @map("avatar_history")
-  emailVerified   Boolean   @default(false) @map("email_verified")
-  emailVerifiedAt DateTime? @map("email_verified_at")
+  id                  String    @id @default(cuid())
+  email               String    @unique
+  username            String    @unique @db.VarChar(64)
+  displayName         String    @map("display_name")
+  passwordHash        String    @map("password_hash")
+  avatarUrl           String?   @map("avatar_url")
+  avatarConfig        Json?     @map("avatar_config")
+  avatarHistory       Json?     @map("avatar_history")
+  emailVerified       Boolean   @default(false) @map("email_verified")
+  emailVerifiedAt     DateTime? @map("email_verified_at")
   deletionScheduledAt DateTime? @map("deletion_scheduled_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  recipes       Recipe[]
-  recipeNotes   RecipeNote[]
-  recipeEdits   RecipeEdit[]
-  cookLogs      CookLog[]
-  mealPlans     MealPlan[]
-  shoppingLists ShoppingList[]
-  menus         Menu[]
-  menuUsages    MenuUsage[]
-  sessions      Session[]
-  passwordResetTokens PasswordResetToken[]
+  recipes                 Recipe[]
+  recipeNotes             RecipeNote[]
+  recipeEdits             RecipeEdit[]
+  cookLogs                CookLog[]
+  scheduledMeals          ScheduledMeal[]
+  shoppingLists           ShoppingList[]
+  mealPlans               MealPlan[]
+  mealPlanUsages          MealPlanUsage[]
+  sessions                Session[]
+  passwordResetTokens     PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
 
   @@map("users")
 }
 
 model Session {
-  id        String   @id @default(cuid())
-  userId    String   @map("user_id")
-  tokenHash String   @unique @map("token_hash")
-  expiresAt DateTime @map("expires_at")
-  rememberMe Boolean @default(false) @map("remember_me")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  tokenHash  String   @unique @map("token_hash")
+  expiresAt  DateTime @map("expires_at")
+  rememberMe Boolean  @default(false) @map("remember_me")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -62,12 +62,12 @@ model Session {
 }
 
 model PasswordResetToken {
-  id        String   @id @default(cuid())
-  userId    String   @map("user_id")
-  tokenHash String   @unique @map("token_hash")
-  expiresAt DateTime @map("expires_at")
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
   usedAt    DateTime? @map("used_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -76,12 +76,12 @@ model PasswordResetToken {
 }
 
 model EmailVerificationToken {
-  id        String   @id @default(cuid())
-  userId    String   @map("user_id")
-  tokenHash String   @unique @map("token_hash")
-  expiresAt DateTime @map("expires_at")
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
   usedAt    DateTime? @map("used_at")
-  createdAt DateTime @default(now()) @map("created_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -101,38 +101,38 @@ enum Complexity {
 }
 
 model Recipe {
-  id            String     @id @default(cuid())
-  userId        String     @map("user_id")
-  title         String
-  description   String?    @db.Text
-  photoUrl      String?    @map("photo_url")
-  sourceUrl     String?    @map("source_url")
-  servings      Int        @default(4)
-  currentServings Int      @default(4) @map("current_servings")
-  prepTimeMinutes  Int?    @map("prep_time_minutes")
-  cookTimeMinutes  Int?    @map("cook_time_minutes")
-  complexity    Complexity @default(NONE)
-  dishType      String?    @map("dish_type")
-  cuisine       String?
-  flavorProfile String?    @map("flavor_profile") @db.Text
-  isFavorite    Boolean    @default(false) @map("is_favorite")
-  cookCount     Int        @default(0) @map("cook_count")
-  lastCookedAt  DateTime?  @map("last_cooked_at")
+  id              String                      @id @default(cuid())
+  userId          String                      @map("user_id")
+  title           String
+  description     String?                     @db.Text
+  photoUrl        String?                     @map("photo_url")
+  sourceUrl       String?                     @map("source_url")
+  servings        Int                         @default(4)
+  currentServings Int                         @default(4) @map("current_servings")
+  prepTimeMinutes Int?                        @map("prep_time_minutes")
+  cookTimeMinutes Int?                        @map("cook_time_minutes")
+  complexity      Complexity                  @default(NONE)
+  dishType        String?                     @map("dish_type")
+  cuisine         String?
+  flavorProfile   String?                     @map("flavor_profile") @db.Text
+  isFavorite      Boolean                     @default(false) @map("is_favorite")
+  cookCount       Int                         @default(0) @map("cook_count")
+  lastCookedAt    DateTime?                   @map("last_cooked_at")
   // Gemini gemini-embedding-001 produces 768-dimensional vectors
-  embedding     Unsupported("vector(768)")?
-  createdAt     DateTime   @default(now()) @map("created_at")
-  updatedAt     DateTime   @updatedAt @map("updated_at")
+  embedding       Unsupported("vector(768)")?
+  createdAt       DateTime                    @default(now()) @map("created_at")
+  updatedAt       DateTime                    @updatedAt @map("updated_at")
 
-  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  ingredientGroups  IngredientGroup[]
-  steps             RecipeStep[]
-  notes             RecipeNote[]
-  edits             RecipeEdit[]
-  cookLogs          CookLog[]
-  mealPlans         MealPlan[]
-  shoppingLists     ShoppingList[]
-  shoppingItems     ShoppingItem[]
-  menuItems         MenuItem[]
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ingredientGroups IngredientGroup[]
+  steps            RecipeStep[]
+  notes            RecipeNote[]
+  edits            RecipeEdit[]
+  cookLogs         CookLog[]
+  scheduledMeals   ScheduledMeal[]
+  shoppingLists    ShoppingList[]
+  shoppingItems    ShoppingItem[]
+  mealPlanItems    MealPlanItem[]
 
   @@index([userId])
   @@index([userId, isFavorite])
@@ -251,7 +251,7 @@ model CookLog {
 // Meal Planning
 // ---------------------------------------------------------------------------
 
-model MealPlan {
+model ScheduledMeal {
   id          String   @id @default(cuid())
   userId      String   @map("user_id")
   recipeId    String   @map("recipe_id")
@@ -265,7 +265,7 @@ model MealPlan {
 
   @@index([userId, plannedDate])
   @@index([recipeId])
-  @@map("meal_plans")
+  @@map("scheduled_meals")
 }
 
 // ---------------------------------------------------------------------------
@@ -280,9 +280,9 @@ model ShoppingList {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user  User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  recipe Recipe?       @relation(fields: [recipeId], references: [id], onDelete: SetNull)
-  items ShoppingItem[]
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  recipe Recipe?        @relation(fields: [recipeId], references: [id], onDelete: SetNull)
+  items  ShoppingItem[]
 
   // At most one list per (user, recipe). Makes the add-item find-or-create
   // atomic via upsert and prevents the concurrent-POST race that created
@@ -322,59 +322,59 @@ model ShoppingItem {
 }
 
 // ---------------------------------------------------------------------------
-// Menus
+// Meal Plans
 // ---------------------------------------------------------------------------
 
-model Menu {
-  id          String    @id @default(cuid())
-  userId      String    @map("user_id")
+model MealPlan {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
   title       String
-  description String?   @db.Text
-  createdAt   DateTime  @default(now()) @map("created_at")
-  updatedAt   DateTime  @updatedAt      @map("updated_at")
+  description String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
-  user   User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  items  MenuItem[]
-  usages MenuUsage[]
+  user   User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items  MealPlanItem[]
+  usages MealPlanUsage[]
 
   @@index([userId])
-  @@map("menus")
+  @@map("meal_plans")
 }
 
-model MenuUsage {
-  id        String    @id @default(cuid())
-  menuId    String    @map("menu_id")
-  userId    String    @map("user_id")
-  startDate DateTime  @map("start_date") @db.Date
-  endDate   DateTime? @map("end_date")   @db.Date
-  type      String    @default("planned") // "planned" | "logged"
-  notes     String?   @db.Text
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt      @map("updated_at")
+model MealPlanUsage {
+  id         String    @id @default(cuid())
+  mealPlanId String    @map("meal_plan_id")
+  userId     String    @map("user_id")
+  startDate  DateTime  @map("start_date") @db.Date
+  endDate    DateTime? @map("end_date") @db.Date
+  type       String    @default("planned") // "planned" | "logged"
+  notes      String?   @db.Text
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
 
-  menu Menu @relation(fields: [menuId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mealPlan MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([menuId])
+  @@index([mealPlanId])
   @@index([userId])
-  @@map("menu_usages")
+  @@map("meal_plan_usages")
 }
 
-model MenuItem {
-  id        String    @id @default(cuid())
-  menuId    String    @map("menu_id")
-  recipeId  String    @map("recipe_id")
-  servings  Int
-  sortOrder Int       @default(0) @map("sort_order")
-  cookDate  DateTime? @map("cook_date") @db.Date
-  notes     String?   @db.Text
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt      @map("updated_at")
+model MealPlanItem {
+  id         String    @id @default(cuid())
+  mealPlanId String    @map("meal_plan_id")
+  recipeId   String    @map("recipe_id")
+  servings   Int
+  sortOrder  Int       @default(0) @map("sort_order")
+  cookDate   DateTime? @map("cook_date") @db.Date
+  notes      String?   @db.Text
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
 
-  menu   Menu   @relation(fields: [menuId],   references: [id], onDelete: Cascade)
-  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
+  mealPlan MealPlan @relation(fields: [mealPlanId], references: [id], onDelete: Cascade)
+  recipe   Recipe   @relation(fields: [recipeId], references: [id], onDelete: Cascade)
 
-  @@index([menuId])
+  @@index([mealPlanId])
   @@index([recipeId])
-  @@map("menu_items")
+  @@map("meal_plan_items")
 }
