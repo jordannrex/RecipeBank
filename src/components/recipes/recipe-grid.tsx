@@ -14,6 +14,25 @@ const LIMIT = 20;
 
 type ActiveComplexity = "EASY" | "MEDIUM" | "HARD" | null;
 
+type SortOption =
+  | "newest"
+  | "price_asc"
+  | "price_desc"
+  | "cooked_asc"
+  | "cooked_desc"
+  | "time_asc"
+  | "time_desc";
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: "newest", label: "Newest" },
+  { value: "price_asc", label: "Price: low to high" },
+  { value: "price_desc", label: "Price: high to low" },
+  { value: "cooked_asc", label: "Times cooked: fewest" },
+  { value: "cooked_desc", label: "Times cooked: most" },
+  { value: "time_asc", label: "Total time: quickest" },
+  { value: "time_desc", label: "Total time: longest" },
+];
+
 export function RecipeGrid() {
   const searchParams = useSearchParams();
 
@@ -39,6 +58,9 @@ export function RecipeGrid() {
     () => searchParams.get("favorites") === "true"
   );
   const [complexity, setComplexity] = useState<ActiveComplexity>(null);
+  const [sort, setSort] = useState<SortOption>(
+    () => (searchParams.get("sort") as SortOption | null) ?? "newest"
+  );
 
   const [addOpen, setAddOpen]       = useState(false);
   const [previewId, setPreviewId]   = useState<string | null>(null);
@@ -56,6 +78,7 @@ export function RecipeGrid() {
         if (aiSearch && debouncedQuery) params.set("ai", "true");
         if (showFavorites) params.set("favorites", "true");
         if (complexity) params.set("complexity", complexity);
+        if (sort !== "newest") params.set("sort", sort);
 
         const res = await fetch(`/api/recipes?${params}`);
         const json = await res.json();
@@ -72,7 +95,7 @@ export function RecipeGrid() {
         loadingMoreRef.current = false;
       }
     },
-    [debouncedQuery, aiSearch, showFavorites, complexity],
+    [debouncedQuery, aiSearch, showFavorites, complexity, sort],
   );
 
   // Reset and fetch fresh when filters change
@@ -193,32 +216,49 @@ export function RecipeGrid() {
         </button>
       </div>
 
-      {/* Filter chips */}
-      <div className="flex flex-wrap items-center gap-2">
-        <FilterChip
-          active={showFavorites}
-          onClick={() => setShowFavorites((v) => !v)}
-        >
-          ♥ Favorites
-        </FilterChip>
-        {(["EASY", "MEDIUM", "HARD"] as const).map((c) => (
+      {/* Filter chips + sort */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <FilterChip
-            key={c}
-            active={complexity === c}
-            onClick={() => setComplexity((prev) => (prev === c ? null : c))}
+            active={showFavorites}
+            onClick={() => setShowFavorites((v) => !v)}
           >
-            {c === "EASY" ? "Easy" : c === "MEDIUM" ? "Medium" : "Hard"}
+            ♥ Favorites
           </FilterChip>
-        ))}
-        {filtersActive && (
-          <button
-            type="button"
-            onClick={clearFilters}
-            className="text-xs text-muted transition-colors hover:text-text"
+          {(["EASY", "MEDIUM", "HARD"] as const).map((c) => (
+            <FilterChip
+              key={c}
+              active={complexity === c}
+              onClick={() => setComplexity((prev) => (prev === c ? null : c))}
+            >
+              {c === "EASY" ? "Easy" : c === "MEDIUM" ? "Medium" : "Hard"}
+            </FilterChip>
+          ))}
+          {filtersActive && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="text-xs text-muted transition-colors hover:text-text"
+            >
+              Clear filters
+            </button>
+          )}
+        </div>
+
+        {/* Sort */}
+        <label className="flex items-center gap-2 text-xs text-muted">
+          <span className="hidden sm:inline">Sort</span>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortOption)}
+            className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm text-text outline-none focus:border-highlight focus:ring-2 focus:ring-highlight/20"
+            aria-label="Sort recipes"
           >
-            Clear filters
-          </button>
-        )}
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </label>
       </div>
 
       {/* Grid */}

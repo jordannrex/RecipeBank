@@ -4,6 +4,7 @@ import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { recipeCreateSchema } from "@/lib/recipe-schemas";
 import { generateEmbedding, embedRecipeInBackground, searchRecipesByEmbedding } from "@/lib/embeddings";
+import { computeIngredientsCost } from "@/lib/cost";
 import type { RecipeListItem, RecipeListResponse } from "@/types/recipe";
 
 // ---------------------------------------------------------------------------
@@ -18,7 +19,7 @@ function totalTimeMinutes(
   return (prep ?? 0) + (cook ?? 0);
 }
 
-function toListItem(r: {
+type RecipeRow = {
   id: string;
   title: string;
   photoUrl: string | null;
@@ -30,9 +31,23 @@ function toListItem(r: {
   cookTimeMinutes: number | null;
   servings: number;
   createdAt: Date;
-}): RecipeListItem {
+};
+
+function toListItem(r: RecipeRow): RecipeListItem {
+  // Pick fields explicitly so extra selected columns (e.g. cookCount /
+  // ingredientGroups pulled in for the price sort) don't leak into the response.
   return {
-    ...r,
+    id: r.id,
+    title: r.title,
+    photoUrl: r.photoUrl,
+    cuisine: r.cuisine,
+    dishType: r.dishType,
+    isFavorite: r.isFavorite,
+    complexity: r.complexity,
+    prepTimeMinutes: r.prepTimeMinutes,
+    cookTimeMinutes: r.cookTimeMinutes,
+    servings: r.servings,
+    createdAt: r.createdAt,
     totalTimeMinutes: totalTimeMinutes(r.prepTimeMinutes, r.cookTimeMinutes),
   };
 }
@@ -64,6 +79,17 @@ const listQuerySchema = z.object({
   cuisine: z.string().optional(),
   dishType: z.string().optional(),
   complexity: z.enum(["EASY", "MEDIUM", "HARD"]).optional(),
+  sort: z
+    .enum([
+      "newest",
+      "price_asc",
+      "price_desc",
+      "cooked_asc",
+      "cooked_desc",
+      "time_asc",
+      "time_desc",
+    ])
+    .default("newest"),
 });
 
 export async function GET(request: Request) {
@@ -76,7 +102,7 @@ export async function GET(request: Request) {
     return apiError(parsed.error.issues[0]?.message ?? "Invalid query", 400);
   }
 
-  const { page, limit, q, ai, favorites, cuisine, dishType, complexity } = parsed.data;
+  const { page, limit, q, ai, favorites, cuisine, dishType, complexity, sort } = parsed.data;
   const skip = (page - 1) * limit;
 
   // ── AI semantic search ────────────────────────────────────────────────────
@@ -151,6 +177,85 @@ export async function GET(request: Request) {
     ...(dishType    ? { dishType:   { contains: dishType,  mode: "insensitive" as const } } : {}),
     ...(complexity  ? { complexity } : {}),
   };
+
+  // ── Sort by price / times-cooked / total time ─────────────────────────────
+  // Price is derived from per-ingredient pricing (not a stored column) and each
+  // of these sorts has a "put recipes without data in normal order" rule, so
+  // none maps cleanly to a SQL ORDER BY. We load all matching recipes, order +
+  // partition in JS, then slice the requested page. `createdAt desc` is the
+  // baseline order used for tie-breaks and for the "no data" group.
+  if (sort !== "newest") {
+    const ascending =
+      sort === "price_asc" || sort === "cooked_asc" || sort === "time_asc";
+
+    // Compute the sort key for each recipe. `key === null` means "no data" —
+    // those keep their newest-first order and are appended after the sorted set.
+    let keyed: { r: RecipeRow; key: number | null }[];
+    if (sort === "price_asc" || sort === "price_desc") {
+      const rows = await prisma.recipe.findMany({
+        where,
+        select: {
+          ...recipeListSelect,
+          ingredientGroups: {
+            select: {
+              ingredients: {
+                select: {
+                  quantity: true,
+                  unit: true,
+                  storePkgQty: true,
+                  storePkgUnit: true,
+                  price: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      keyed = rows.map((r) => ({
+        r,
+        // null when nothing on the recipe is priceable
+        key: computeIngredientsCost(r.ingredientGroups.flatMap((g) => g.ingredients)).cost,
+      }));
+    } else if (sort === "cooked_asc" || sort === "cooked_desc") {
+      const rows = await prisma.recipe.findMany({
+        where,
+        select: { ...recipeListSelect, cookCount: true },
+        orderBy: { createdAt: "desc" },
+      });
+      keyed = rows.map((r) => ({
+        r,
+        key: r.cookCount > 0 ? r.cookCount : null, // 0 cooks = "no data"
+      }));
+    } else {
+      // time_asc / time_desc — total time is prep + cook; null when neither is set.
+      const rows = await prisma.recipe.findMany({
+        where,
+        select: recipeListSelect,
+        orderBy: { createdAt: "desc" },
+      });
+      keyed = rows.map((r) => ({
+        r,
+        key: totalTimeMinutes(r.prepTimeMinutes, r.cookTimeMinutes),
+      }));
+    }
+
+    // rows arrive in createdAt-desc order; Array.prototype.sort is stable, so
+    // recipes with an equal key preserve that newest-first tie-break.
+    const withData = keyed
+      .filter((x) => x.key !== null)
+      .sort((a, b) => (ascending ? a.key! - b.key! : b.key! - a.key!));
+    const withoutData = keyed.filter((x) => x.key === null);
+
+    const ordered = [...withData, ...withoutData].map((x) => x.r);
+    const data: RecipeListResponse = {
+      recipes: ordered.slice(skip, skip + limit).map(toListItem),
+      total: ordered.length,
+      page,
+      limit,
+    };
+    return apiSuccess(data);
+  }
 
   const [recipes, total] = await prisma.$transaction([
     prisma.recipe.findMany({
