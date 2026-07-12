@@ -8,6 +8,7 @@ import { AddRecipeModal } from "@/components/recipes/add-recipe-modal";
 import { Button } from "@/components/ui/button";
 import { useDebounce } from "@/hooks/use-debounce";
 import { cn } from "@/lib/utils";
+import { getRecipeCollection } from "@/lib/recipe-collections";
 import type { RecipeListItem, RecipeListResponse } from "@/types/recipe";
 
 const LIMIT = 20;
@@ -61,6 +62,16 @@ export function RecipeGrid() {
   const [sort, setSort] = useState<SortOption>(
     () => (searchParams.get("sort") as SortOption | null) ?? "newest"
   );
+  // Curated cuisine/dish-type collection arriving from a home-page "See all"
+  // link (e.g. ?collection=latin-mexican). Only kept if it resolves to a known
+  // collection, so a stale/unknown slug just falls back to the full list.
+  const [collectionSlug, setCollectionSlug] = useState<string | null>(
+    () => {
+      const slug = searchParams.get("collection");
+      return slug && getRecipeCollection(slug) ? slug : null;
+    }
+  );
+  const activeCollection = collectionSlug ? getRecipeCollection(collectionSlug) : undefined;
 
   const [addOpen, setAddOpen]       = useState(false);
   const [previewId, setPreviewId]   = useState<string | null>(null);
@@ -78,6 +89,7 @@ export function RecipeGrid() {
         if (aiSearch && debouncedQuery) params.set("ai", "true");
         if (showFavorites) params.set("favorites", "true");
         if (complexity) params.set("complexity", complexity);
+        if (collectionSlug) params.set("collection", collectionSlug);
         if (sort !== "newest") params.set("sort", sort);
 
         const res = await fetch(`/api/recipes?${params}`);
@@ -95,7 +107,7 @@ export function RecipeGrid() {
         loadingMoreRef.current = false;
       }
     },
-    [debouncedQuery, aiSearch, showFavorites, complexity, sort],
+    [debouncedQuery, aiSearch, showFavorites, complexity, collectionSlug, sort],
   );
 
   // Reset and fetch fresh when filters change
@@ -142,12 +154,14 @@ export function RecipeGrid() {
     }
   }
 
-  const filtersActive = showFavorites || !!complexity || !!debouncedQuery;
+  const filtersActive =
+    showFavorites || !!complexity || !!debouncedQuery || !!activeCollection;
 
   function clearFilters() {
     setQuery("");
     setShowFavorites(false);
     setComplexity(null);
+    setCollectionSlug(null);
   }
 
   return (
@@ -219,6 +233,11 @@ export function RecipeGrid() {
       {/* Filter chips + sort */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
+          {activeCollection && (
+            <FilterChip active onClick={() => setCollectionSlug(null)}>
+              {activeCollection.title} ✕
+            </FilterChip>
+          )}
           <FilterChip
             active={showFavorites}
             onClick={() => setShowFavorites((v) => !v)}

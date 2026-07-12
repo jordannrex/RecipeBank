@@ -5,6 +5,11 @@ import { HeroRecipeBackdrop, type JournalRecipe } from "@/components/home/hero-r
 import { Logo } from "@/components/ui/logo";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import {
+  RECIPE_COLLECTIONS,
+  collectionWhereOR,
+  type RecipeCollection,
+} from "@/lib/recipe-collections";
 import { realizePastScheduledMeals } from "@/lib/scheduled-meal-realize";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -17,16 +22,55 @@ type MinRecipe = {
   cuisine: string | null;
 };
 
+/** Column selection for the compact recipe cards used across the home rows. */
+const CARD_SELECT = {
+  id: true,
+  title: true,
+  photoUrl: true,
+  complexity: true,
+  cuisine: true,
+} as const;
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
+
+/** In-place Fisher–Yates shuffle; returns the same array for chaining. */
+function shuffle<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/**
+ * Fetch up to 12 recipes for a curated collection, matched by case-insensitive
+ * substring against the free-text cuisine/dishType values. Reshuffled per load,
+ * mirroring the hero backdrop, so old recipes keep resurfacing.
+ */
+async function getCollection(userId: string, c: RecipeCollection): Promise<MinRecipe[]> {
+  const rows = await prisma.recipe.findMany({
+    where: { userId, OR: collectionWhereOR(c) },
+    select: CARD_SELECT,
+  });
+  return shuffle(rows).slice(0, 12);
+}
 
 function formatLastCooked(date: Date | null): string {
   if (!date) return "Never";
-  const diffMs = Date.now() - date.getTime();
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return "Today";
+  // cookedAt is a `@db.Date` column, so Prisma hands it back at UTC midnight
+  // (e.g. 2026-07-10T00:00:00Z). Compare *calendar days*, not elapsed 24h
+  // windows: read the cook date from its UTC components (the intended calendar
+  // date) and diff it against today. Using raw milliseconds instead would count
+  // a yesterday-cook as "2 days ago" once the UTC-midnight instant sits far
+  // enough back in a behind-UTC timezone.
+  const cooked = new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.round((today.getTime() - cooked.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays <= 0) return "Today";
   if (diffDays === 1) return "Yesterday";
   if (diffDays < 7) return `${diffDays} days ago`;
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 /**
@@ -73,12 +117,8 @@ async function getBackdropRecipes(userId: string): Promise<JournalRecipe[] | nul
 
   if (mapped.length < 8) return null;
 
-  // Fisher–Yates shuffle so card positions vary too, not just which recipes.
-  for (let i = mapped.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [mapped[i], mapped[j]] = [mapped[j], mapped[i]];
-  }
-  return mapped.slice(0, 8);
+  // Shuffle so card positions vary too, not just which recipes.
+  return shuffle(mapped).slice(0, 8);
 }
 
 // ─── Sub-components ─────────────────────────────────────────────────────────
@@ -196,13 +236,7 @@ export default async function HomePage() {
   // "turn into reality" on their own — stats below (and everywhere) reflect it.
   await realizePastScheduledMeals(userId);
 
-  const select = {
-    id: true,
-    title: true,
-    photoUrl: true,
-    complexity: true,
-    cuisine: true,
-  } as const;
+  const select = CARD_SELECT;
 
   const [
     totalRecipes,
@@ -212,6 +246,7 @@ export default async function HomePage() {
     favorites,
     mostCooked,
     backdropRecipes,
+    collections,
   ] = await Promise.all([
     prisma.recipe.count({ where: { userId } }),
     prisma.recipe.count({ where: { userId, isFavorite: true } }),
@@ -239,6 +274,9 @@ export default async function HomePage() {
       select,
     }),
     getBackdropRecipes(userId),
+    Promise.all(
+      RECIPE_COLLECTIONS.map(async (c) => ({ collection: c, recipes: await getCollection(userId, c) })),
+    ),
   ]);
 
   return (
@@ -287,6 +325,16 @@ export default async function HomePage() {
           recipes={mostCooked}
           seeAllHref="/recipes"
         />
+
+        {/* Cuisine & dish-type rows — empty ones self-hide (GallerySection) */}
+        {collections.map(({ collection, recipes }) => (
+          <GallerySection
+            key={collection.slug}
+            title={collection.title}
+            recipes={recipes}
+            seeAllHref={`/recipes?collection=${collection.slug}`}
+          />
+        ))}
 
         {/* If no recipes at all, show a gentle nudge */}
         {totalRecipes === 0 && (

@@ -3,6 +3,7 @@ import { apiError, apiSuccess } from "@/lib/api";
 import { withAuth } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { recipeCreateSchema } from "@/lib/recipe-schemas";
+import { getRecipeCollection, collectionWhereOR } from "@/lib/recipe-collections";
 import { generateEmbedding, embedRecipeInBackground, searchRecipesByEmbedding } from "@/lib/embeddings";
 import { computeIngredientsCost } from "@/lib/cost";
 import type { RecipeListItem, RecipeListResponse } from "@/types/recipe";
@@ -78,6 +79,7 @@ const listQuerySchema = z.object({
   favorites: z.coerce.boolean().optional(),
   cuisine: z.string().optional(),
   dishType: z.string().optional(),
+  collection: z.string().optional(), // curated cuisine/dish-type row (see recipe-collections)
   complexity: z.enum(["EASY", "MEDIUM", "HARD"]).optional(),
   sort: z
     .enum([
@@ -102,8 +104,13 @@ export async function GET(request: Request) {
     return apiError(parsed.error.issues[0]?.message ?? "Invalid query", 400);
   }
 
-  const { page, limit, q, ai, favorites, cuisine, dishType, complexity, sort } = parsed.data;
+  const { page, limit, q, ai, favorites, cuisine, dishType, collection, complexity, sort } = parsed.data;
   const skip = (page - 1) * limit;
+
+  // Curated collection → OR of case-insensitive substring matches on the
+  // relevant field. Wrapped in AND so it composes with q/favorites/etc.
+  const coll = collection ? getRecipeCollection(collection) : undefined;
+  const collectionFilter = coll ? { AND: [{ OR: collectionWhereOR(coll) }] } : {};
 
   // ── AI semantic search ────────────────────────────────────────────────────
   // Only returns recipes above the similarity threshold. Falls through to
@@ -132,6 +139,7 @@ export async function GET(request: Request) {
               ...(cuisine    ? { cuisine:  { contains: cuisine,  mode: "insensitive" as const } } : {}),
               ...(dishType   ? { dishType: { contains: dishType, mode: "insensitive" as const } } : {}),
               ...(complexity ? { complexity } : {}),
+              ...collectionFilter,
             },
             select: recipeListSelect,
           });
@@ -176,6 +184,7 @@ export async function GET(request: Request) {
     ...(cuisine     ? { cuisine:    { contains: cuisine,   mode: "insensitive" as const } } : {}),
     ...(dishType    ? { dishType:   { contains: dishType,  mode: "insensitive" as const } } : {}),
     ...(complexity  ? { complexity } : {}),
+    ...collectionFilter,
   };
 
   // ── Sort by price / times-cooked / total time ─────────────────────────────
