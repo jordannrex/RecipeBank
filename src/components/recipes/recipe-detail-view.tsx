@@ -243,13 +243,13 @@ function ViewMode({
             label={formatTime(totalTime)}
           />
         )}
-        {recipe.prepTimeMinutes && (
+        {!!recipe.prepTimeMinutes && (
           <MetaChip
             icon={<span className="text-[10px]">prep</span>}
             label={formatTime(recipe.prepTimeMinutes)}
           />
         )}
-        {recipe.cookTimeMinutes && (
+        {!!recipe.cookTimeMinutes && (
           <MetaChip
             icon={<span className="text-[10px]">cook</span>}
             label={formatTime(recipe.cookTimeMinutes)}
@@ -2186,8 +2186,8 @@ export function RecipeDetailView({ recipe: initialRecipe }: Props) {
             <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
           </svg>
           {formatTime(totalTime)} total
-          {recipe.prepTimeMinutes && ` · ${formatTime(recipe.prepTimeMinutes)} prep`}
-          {recipe.cookTimeMinutes && ` · ${formatTime(recipe.cookTimeMinutes)} cook`}
+          {!!recipe.prepTimeMinutes && ` · ${formatTime(recipe.prepTimeMinutes)} prep`}
+          {!!recipe.cookTimeMinutes && ` · ${formatTime(recipe.cookTimeMinutes)} cook`}
         </p>
       )}
 

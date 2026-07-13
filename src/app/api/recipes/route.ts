@@ -190,21 +190,23 @@ export async function GET(request: Request) {
   // ── Sort by price / times-cooked / total time ─────────────────────────────
   // Price is derived from per-ingredient pricing (not a stored column) and each
   // of these sorts has a "put recipes without data in normal order" rule, so
-  // none maps cleanly to a SQL ORDER BY. We load all matching recipes, order +
-  // partition in JS, then slice the requested page. `createdAt desc` is the
+  // none maps cleanly to a SQL ORDER BY — we rank in JS. To keep the payload
+  // small we first load only the lightweight ranking fields for ALL matching
+  // recipes (no photo blobs), order + partition to a page of IDs, then fetch the
+  // full card data (incl. photoUrl) for just that page. `createdAt desc` is the
   // baseline order used for tie-breaks and for the "no data" group.
   if (sort !== "newest") {
     const ascending =
       sort === "price_asc" || sort === "cooked_asc" || sort === "time_asc";
 
-    // Compute the sort key for each recipe. `key === null` means "no data" —
+    // Compute the sort key for each recipe id. `key === null` means "no data" —
     // those keep their newest-first order and are appended after the sorted set.
-    let keyed: { r: RecipeRow; key: number | null }[];
+    let keyed: { id: string; key: number | null }[];
     if (sort === "price_asc" || sort === "price_desc") {
       const rows = await prisma.recipe.findMany({
         where,
         select: {
-          ...recipeListSelect,
+          id: true,
           ingredientGroups: {
             select: {
               ingredients: {
@@ -222,29 +224,29 @@ export async function GET(request: Request) {
         orderBy: { createdAt: "desc" },
       });
       keyed = rows.map((r) => ({
-        r,
+        id: r.id,
         // null when nothing on the recipe is priceable
         key: computeIngredientsCost(r.ingredientGroups.flatMap((g) => g.ingredients)).cost,
       }));
     } else if (sort === "cooked_asc" || sort === "cooked_desc") {
       const rows = await prisma.recipe.findMany({
         where,
-        select: { ...recipeListSelect, cookCount: true },
+        select: { id: true, cookCount: true },
         orderBy: { createdAt: "desc" },
       });
       keyed = rows.map((r) => ({
-        r,
+        id: r.id,
         key: r.cookCount > 0 ? r.cookCount : null, // 0 cooks = "no data"
       }));
     } else {
       // time_asc / time_desc — total time is prep + cook; null when neither is set.
       const rows = await prisma.recipe.findMany({
         where,
-        select: recipeListSelect,
+        select: { id: true, prepTimeMinutes: true, cookTimeMinutes: true },
         orderBy: { createdAt: "desc" },
       });
       keyed = rows.map((r) => ({
-        r,
+        id: r.id,
         key: totalTimeMinutes(r.prepTimeMinutes, r.cookTimeMinutes),
       }));
     }
@@ -255,11 +257,23 @@ export async function GET(request: Request) {
       .filter((x) => x.key !== null)
       .sort((a, b) => (ascending ? a.key! - b.key! : b.key! - a.key!));
     const withoutData = keyed.filter((x) => x.key === null);
+    const orderedIds = [...withData, ...withoutData].map((x) => x.id);
 
-    const ordered = [...withData, ...withoutData].map((x) => x.r);
+    // Fetch full card data for just the requested page, preserving the order.
+    const pageIds = orderedIds.slice(skip, skip + limit);
+    const pageRows = await prisma.recipe.findMany({
+      where: { id: { in: pageIds }, userId: auth.user.id },
+      select: recipeListSelect,
+    });
+    const byId = new Map(pageRows.map((r) => [r.id, r]));
+    const recipes = pageIds
+      .map((id) => byId.get(id))
+      .filter((r): r is RecipeRow => r !== undefined)
+      .map(toListItem);
+
     const data: RecipeListResponse = {
-      recipes: ordered.slice(skip, skip + limit).map(toListItem),
-      total: ordered.length,
+      recipes,
+      total: orderedIds.length,
       page,
       limit,
     };

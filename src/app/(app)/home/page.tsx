@@ -48,11 +48,25 @@ function shuffle<T>(arr: T[]): T[] {
  * mirroring the hero backdrop, so old recipes keep resurfacing.
  */
 async function getCollection(userId: string, c: RecipeCollection): Promise<MinRecipe[]> {
-  const rows = await prisma.recipe.findMany({
+  // Sample from the whole collection (so old recipes keep resurfacing) but only
+  // pull the heavy card fields — including the base64 photo — for the 12 we show.
+  // Step 1 fetches just the matching ids (cheap even for a large collection).
+  const ids = await prisma.recipe.findMany({
     where: { userId, OR: collectionWhereOR(c) },
+    select: { id: true },
+  });
+  if (ids.length === 0) return [];
+
+  const pickedIds = shuffle(ids.map((r) => r.id)).slice(0, 12);
+  const rows = await prisma.recipe.findMany({
+    where: { id: { in: pickedIds } },
     select: CARD_SELECT,
   });
-  return shuffle(rows).slice(0, 12);
+  // Preserve the shuffled order (findMany with `in` doesn't guarantee it).
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  return pickedIds
+    .map((id) => byId.get(id))
+    .filter((r): r is MinRecipe => r !== undefined);
 }
 
 function formatLastCooked(date: Date | null): string {
