@@ -5,7 +5,6 @@ import { prisma } from "@/lib/db";
 import { ingredientGroupSchema, stepSchema, MAX_IMAGE_DATA_URL_LENGTH } from "@/lib/recipe-schemas";
 import { getOwnedRecipe } from "@/lib/recipe-helpers";
 import { embedRecipeInBackground } from "@/lib/embeddings";
-import type { Recipe } from "@prisma/client";
 
 const recipeUpdateSchema = z.object({
   title: z.string().min(1, "Title is required").max(500).optional(),
@@ -33,49 +32,6 @@ const recipeInclude = {
   },
   steps: { orderBy: { sortOrder: "asc" as const } },
 } as const;
-
-// ---------------------------------------------------------------------------
-// Helpers for edit tracking
-// ---------------------------------------------------------------------------
-
-/** Fields whose values we record in RecipeEdit when they change. */
-const TRACKED_CORE_FIELDS = [
-  "title", "description", "servings", "prepTimeMinutes", "cookTimeMinutes",
-  "complexity", "dishType", "cuisine", "flavorProfile", "isFavorite",
-] as const;
-
-type TrackedField = typeof TRACKED_CORE_FIELDS[number];
-
-function serialize(val: unknown): string | null {
-  if (val === null || val === undefined) return null;
-  return String(val);
-}
-
-function buildEditEntries(
-  recipeId: string,
-  userId: string,
-  before: Recipe,
-  patch: Partial<Record<TrackedField, unknown>>,
-) {
-  const entries: {
-    recipeId: string;
-    userId: string;
-    fieldName: string;
-    oldValue: string | null;
-    newValue: string | null;
-  }[] = [];
-
-  for (const field of TRACKED_CORE_FIELDS) {
-    if (!(field in patch)) continue;
-    const oldStr = serialize(before[field]);
-    const newStr = serialize(patch[field]);
-    if (oldStr !== newStr) {
-      entries.push({ recipeId, userId, fieldName: field, oldValue: oldStr, newValue: newStr });
-    }
-  }
-
-  return entries;
-}
 
 // ---------------------------------------------------------------------------
 // GET /api/recipes/[id]
@@ -112,7 +68,7 @@ export async function PATCH(
   if (!auth) return apiError("Unauthorized", 401);
 
   const { id } = await params;
-  const { recipe: currentRecipe, error } = await getOwnedRecipe(id, auth.user.id);
+  const { error } = await getOwnedRecipe(id, auth.user.id);
   if (error) return error;
 
   let body: unknown;
@@ -221,38 +177,6 @@ export async function PATCH(
           })),
         });
       }
-    }
-
-    // Record edit history
-    const editEntries = buildEditEntries(
-      id,
-      auth.user.id,
-      currentRecipe!,
-      coreFields as Partial<Record<TrackedField, unknown>>,
-    );
-
-    if (newGroups !== undefined) {
-      editEntries.push({
-        recipeId: id,
-        userId: auth.user.id,
-        fieldName: "ingredientGroups",
-        oldValue: null,
-        newValue: null,
-      });
-    }
-
-    if (newSteps !== undefined) {
-      editEntries.push({
-        recipeId: id,
-        userId: auth.user.id,
-        fieldName: "steps",
-        oldValue: null,
-        newValue: null,
-      });
-    }
-
-    if (editEntries.length > 0) {
-      await tx.recipeEdit.createMany({ data: editEntries });
     }
 
     return tx.recipe.findUnique({ where: { id }, include: recipeInclude });

@@ -32,7 +32,6 @@ model User {
 
   recipes                 Recipe[]
   recipeNotes             RecipeNote[]
-  recipeEdits             RecipeEdit[]
   cookLogs                CookLog[]
   scheduledMeals          ScheduledMeal[]
   shoppingLists           ShoppingList[]
@@ -127,7 +126,6 @@ model Recipe {
   ingredientGroups IngredientGroup[]
   steps            RecipeStep[]
   notes            RecipeNote[]
-  edits            RecipeEdit[]
   cookLogs         CookLog[]
   scheduledMeals   ScheduledMeal[]
   shoppingLists    ShoppingList[]
@@ -209,24 +207,6 @@ model RecipeNote {
   @@index([recipeId])
   @@index([userId])
   @@map("recipe_notes")
-}
-
-model RecipeEdit {
-  id        String   @id @default(cuid())
-  recipeId  String   @map("recipe_id")
-  userId    String   @map("user_id")
-  fieldName String   @map("field_name")
-  oldValue  String?  @map("old_value") @db.Text
-  newValue  String?  @map("new_value") @db.Text
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  recipe Recipe @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([recipeId])
-  @@index([userId])
-  @@map("recipe_edits")
 }
 
 model CookLog {

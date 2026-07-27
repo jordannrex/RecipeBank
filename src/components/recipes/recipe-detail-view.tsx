@@ -733,12 +733,26 @@ function PriceCalculatorMode({
 
   // Debounce timer refs keyed by ingredient id
   const saveTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+
+  function persistRow(id: string, row: PriceRow) {
+    return fetch(`/api/ingredients/${id}/price`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        storePkgQty:  row.storePkgQty  ? parseFloat(row.storePkgQty)  : null,
+        storePkgUnit: row.storePkgUnit || null,
+        price:        row.price        ? parseFloat(row.price)        : null,
+      }),
+    });
+  }
 
   function setField(id: string, field: keyof PriceRow, val: string) {
     setRows((prev) => {
       const next = { ...prev, [id]: { ...prev[id], [field]: val } };
       return next;
     });
+    setSaveState("idle");
     // Debounced save — 700ms after last keystroke per ingredient
     const existing = saveTimers.current.get(id);
     if (existing) clearTimeout(existing);
@@ -749,19 +763,29 @@ function PriceCalculatorMode({
         setRows((current) => {
           const row = current[id];
           if (!row) return current;
-          fetch(`/api/ingredients/${id}/price`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              storePkgQty:  row.storePkgQty  ? parseFloat(row.storePkgQty)  : null,
-              storePkgUnit: row.storePkgUnit || null,
-              price:        row.price        ? parseFloat(row.price)        : null,
-            }),
-          }).catch(console.error);
+          persistRow(id, row).catch(console.error);
           return current;
         });
       }, 700),
     );
+  }
+
+  // Explicit "Save Changes" — flush every pending debounce and persist all rows now.
+  async function saveAll() {
+    saveTimers.current.forEach((t) => clearTimeout(t));
+    saveTimers.current.clear();
+    setSaveState("saving");
+    try {
+      await Promise.all(
+        allIngredients.map((ing) =>
+          persistRow(ing.id, rows[ing.id] ?? { storePkgQty: "", storePkgUnit: "", price: "" }),
+        ),
+      );
+      setSaveState("saved");
+    } catch (err) {
+      console.error(err);
+      setSaveState("idle");
+    }
   }
 
   const totalCost = allIngredients.reduce<number | null>((acc, ing) => {
@@ -917,6 +941,22 @@ function PriceCalculatorMode({
               </span>
             )}
           </div>
+        </div>
+      )}
+
+      {allIngredients.length > 0 && (
+        <div className="flex items-center justify-end gap-3">
+          {saveState === "saved" && (
+            <span className="text-sm text-muted">All changes saved</span>
+          )}
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={saveAll}
+            disabled={saveState === "saving"}
+          >
+            {saveState === "saving" ? "Saving…" : "Save Changes"}
+          </Button>
         </div>
       )}
     </div>
@@ -1763,160 +1803,6 @@ function EditMode({
 }
 
 // ---------------------------------------------------------------------------
-// Recipe Edits history section
-// ---------------------------------------------------------------------------
-
-type EditRow = {
-  id: string;
-  fieldName: string;
-  oldValue: string | null;
-  newValue: string | null;
-  createdAt: string;
-};
-
-function formatFieldName(f: string): string {
-  return f
-    .replace(/([A-Z])/g, " $1")
-    .replace(/^./, (s) => s.toUpperCase())
-    .trim();
-}
-
-function truncate(s: string | null, max = 80): string {
-  if (!s) return "—";
-  return s.length > max ? s.slice(0, max) + "…" : s;
-}
-
-function RecipeEditsSection({ recipeId }: { recipeId: string }) {
-  const [open, setOpen] = useState(false);
-  const [edits, setEdits] = useState<EditRow[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [dismissing, setDismissing] = useState<Set<string>>(new Set());
-
-  async function load() {
-    if (loaded) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/recipes/${recipeId}/edits?limit=200`);
-      const json = await res.json();
-      if (!res.ok) { setError(json.error ?? "Failed to load"); return; }
-      setEdits(json.data.edits as EditRow[]);
-      setLoaded(true);
-    } catch {
-      setError("Something went wrong.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function toggle() {
-    setOpen((v) => {
-      if (!v) load();
-      return !v;
-    });
-  }
-
-  async function dismiss(editId: string) {
-    setDismissing((prev) => new Set(prev).add(editId));
-    try {
-      await fetch(`/api/recipes/${recipeId}/edits/${editId}`, { method: "DELETE" });
-      setEdits((prev) => prev.filter((e) => e.id !== editId));
-    } finally {
-      setDismissing((prev) => { const s = new Set(prev); s.delete(editId); return s; });
-    }
-  }
-
-  return (
-    <div className="border-t border-border pt-4">
-      {/* Header toggle */}
-      <button
-        type="button"
-        onClick={toggle}
-        className="flex w-full items-center gap-2 text-left"
-        aria-expanded={open}
-      >
-        <svg
-          className={cn(
-            "h-4 w-4 flex-shrink-0 text-muted transition-transform duration-200",
-            open ? "rotate-90" : "rotate-0",
-          )}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M9 18l6-6-6-6" />
-        </svg>
-        <span className="text-sm font-semibold text-text">Recipe Edits</span>
-      </button>
-
-      {/* Collapsible table */}
-      {open && (
-        <div className="mt-3">
-          {loading ? (
-            <p className="py-6 text-center text-sm text-muted">Loading…</p>
-          ) : error ? (
-            <p className="py-4 text-sm text-destructive">{error}</p>
-          ) : edits.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted">No edit history yet.</p>
-          ) : (
-            <div className="overflow-hidden rounded-xl border border-border">
-              {/* Table header */}
-              <div className="grid grid-cols-[1fr_1fr_1fr_auto_auto] gap-x-4 border-b border-border bg-card px-4 py-2.5">
-                {["Field", "Before", "After", "Date", ""].map((h, i) => (
-                  <span key={i} className="text-xs font-semibold uppercase tracking-wider text-text/50">
-                    {h}
-                  </span>
-                ))}
-              </div>
-
-              {/* Rows */}
-              {edits.map((edit) => (
-                <div
-                  key={edit.id}
-                  className="grid grid-cols-[1fr_1fr_1fr_auto_auto] items-center gap-x-4 border-b border-border/60 px-4 py-3 last:border-b-0"
-                >
-                  <span className="text-sm font-medium text-text truncate">
-                    {formatFieldName(edit.fieldName)}
-                  </span>
-                  <span className="text-sm text-muted truncate" title={edit.oldValue ?? undefined}>
-                    {truncate(edit.oldValue)}
-                  </span>
-                  <span className="text-sm text-text truncate" title={edit.newValue ?? undefined}>
-                    {truncate(edit.newValue)}
-                  </span>
-                  <span className="text-xs text-muted whitespace-nowrap">
-                    {new Date(edit.createdAt).toLocaleDateString("en-US", {
-                      month: "short", day: "numeric", year: "numeric",
-                    })}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => dismiss(edit.id)}
-                    disabled={dismissing.has(edit.id)}
-                    aria-label="Dismiss this edit"
-                    className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md text-muted transition-colors hover:bg-card-hover hover:text-destructive disabled:opacity-40"
-                  >
-                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" aria-hidden="true">
-                      <path d="M18 6L6 18M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
@@ -2247,9 +2133,6 @@ export function RecipeDetailView({ recipe: initialRecipe }: Props) {
         <div className="space-y-8 border-t border-border pt-6">
           <RecipeNotesSection recipeId={recipe.id} />
           <RecipeCookLogSection recipeId={recipe.id} />
-
-          {/* Recipe edit history */}
-          <RecipeEditsSection recipeId={recipe.id} />
 
           {/* Delete */}
           <div className="border-t border-border pt-6">

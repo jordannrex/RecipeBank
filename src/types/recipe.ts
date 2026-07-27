@@ -1,4 +1,4 @@
-import type { CookLog, Complexity, Ingredient, IngredientGroup, Recipe, RecipeEdit, RecipeNote, RecipeStep } from "@prisma/client";
+import type { CookLog, Complexity, Ingredient, IngredientGroup, Recipe, RecipeNote, RecipeStep } from "@prisma/client";
 
 export type RecipeWithRelations = Recipe & {
   ingredientGroups: (IngredientGroup & { ingredients: Ingredient[] })[];
@@ -45,16 +45,6 @@ export type CookLogEntry = Pick<CookLog, "id" | "recipeId" | "userId" | "cookedA
 
 /** A single recipe note as returned by the API. */
 export type RecipeNoteEntry = Pick<RecipeNote, "id" | "recipeId" | "userId" | "body" | "createdAt" | "updatedAt">;
-
-/** A single edit-history record as returned by the API. */
-export type RecipeEditEntry = Pick<RecipeEdit, "id" | "recipeId" | "userId" | "fieldName" | "oldValue" | "newValue" | "createdAt">;
-
-/** Response shape from GET /api/recipes/[id]/edits */
-export type RecipeEditsResponse = {
-  edits: RecipeEditEntry[];
-  nextCursor: string | null;
-  hasMore: boolean;
-};
 
 export { Complexity };
 
